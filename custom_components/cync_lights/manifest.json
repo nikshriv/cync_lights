@@ -1,0 +1,15 @@
+{
+  "domain": "cync_lights",
+  "name": "Cync Room Lights",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/cync_lights",
+  "requirements": ["google-assistant-sdk[samples]","google-auth-oauthlib"],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": [
+    "@nikshriv"
+  ],
+  "iot_class": "local_push"
+}
