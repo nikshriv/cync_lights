@@ -24,8 +24,8 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][config_entry.entry_id]
 
     new_devices = []
-    for room in data['cync_room_data']['rooms']:
-        light_entity = CyncRoomEntity(room)
+    for room,room_data in data['cync_room_data']['rooms'].items():
+        light_entity = CyncRoomEntity(room,room_data)
         new_devices.append(light_entity)
     if new_devices:
         async_add_entities(new_devices)
@@ -43,14 +43,22 @@ class CyncRoomEntity(LightEntity):
 
     should_poll = False
 
-    def __init__(self, room) -> None:
+    def __init__(self, room, room_data) -> None:
         """Initialize the room."""
         self._room = room
-        
+        self._room_data = room_data
+
+    @property
+    def name(self) -> str:
+        """Return the name of the room."""
+        return self._room     
+
     @property
     def unique_id(self) -> str:
         """Return Unique ID string."""
-        return self._room.replace(' ','_') + "_cync"
+        id_list = self._room_data['switches'].keys() 
+        uid = '-'.join(id_list)
+        return uid
 
     @property
     def supported_color_modes(self) -> set[str] | None:
