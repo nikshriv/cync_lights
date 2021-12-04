@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
-CYNC_ADDON_INIT = "http://78b44672-cync-lights/init:3001"
+CYNC_ADDON_INIT = "http://78b44672-cync-lights:3001/init"
 
 async def async_setup_entry(
     hass: HomeAssistant,

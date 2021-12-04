@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import DOMAIN
 from .get_user_data import (GetCyncUserData, GetGoogleCredentials)
 
-CYNC_ADDON_SETUP = "http://78b44672-cync-lights/setup:3001"
+CYNC_ADDON_SETUP = "http://78b44672-cync-lights:3001/setup"
 
 _LOGGER = logging.getLogger(__name__)
 
