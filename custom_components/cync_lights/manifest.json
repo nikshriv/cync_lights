@@ -1,6 +1,7 @@
 {
   "domain": "cync_lights",
   "name": "Cync Room Lights",
+  "version": "0.0.1"
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/cync_lights",
   "requirements": ["google-auth-oauthlib"],
