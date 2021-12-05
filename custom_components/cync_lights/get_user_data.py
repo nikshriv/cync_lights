@@ -64,14 +64,14 @@ class GetCyncUserData:
                 for bulb in device_info['bulbsArray']:
                     switches[bulb['deviceID'] % 1000] = {}
                     if bulb['switchID'] != 0:
-                        switches[bulb['deviceID'] % 1000] = {'id':str(bulb['switchID']),'name':bulb['displayName']}
+                        switches[bulb['deviceID'] % 1000] = {'id':bulb['switchID'],'name':bulb['displayName']}
                 for group in device_info['groupsArray']:
                     if len(group['deviceIDArray']) > 0:
                         room_name = group['displayName']
                         switch_array = {switches[i]['id']:{'name':switches[i]['name'],'state':False,'brightness':0} for i in group['deviceIDArray'] if switches[i] != {}}
                         switch_rooms_list.extend([{'id':switches[i]['id'], 'room':room_name} for i in group['deviceIDArray'] if switches[i] != {}])
                         rooms.append({'name':room_name,'state':False,'brightness':0,'switches':switch_array})
-        self.room_data = {'rooms':rooms,'switchID_to_room':{dev['id']:dev['room'] for dev in switch_rooms_list}}
+        self.room_data = {'rooms':{room['name']:{'state':room['state'],'brightness':room['brightness'],'switches':room['switches']} for room in rooms},'switchID_to_room':{dev['id']:dev['room'] for dev in switch_rooms_list}}
         return self.room_data
 
     async def _get_devices(self):
