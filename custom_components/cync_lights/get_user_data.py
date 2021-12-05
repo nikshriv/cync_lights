@@ -64,7 +64,7 @@ class GetCyncUserData:
                 for bulb in device_info['bulbsArray']:
                     switches[bulb['deviceID'] % 1000] = {}
                     if bulb['switchID'] != 0:
-                        switches[bulb['deviceID'] % 1000] = {'id':bulb['switchID'],'name':bulb['displayName']}
+                        switches[bulb['deviceID'] % 1000] = {'id':str(bulb['switchID']),'name':bulb['displayName']}
                 for group in device_info['groupsArray']:
                     if len(group['deviceIDArray']) > 0:
                         room_name = group['displayName']
