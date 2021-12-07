@@ -77,5 +77,10 @@ class CyncRoomEntity(LightEntity):
         """Return extra state attributes"""
         return {"device_type":"cync"}
 
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return True
+
 class CyncAddonUnavailable(HomeAssistantError):
     """Error raised when Cync Lights Addon has not been started before installing this integration"""
