@@ -70,8 +70,8 @@ class GetCyncUserData:
                         room_name = group['displayName']
                         switch_array = {switches[i]['id']:{'name':switches[i]['name'],'state':False,'brightness':0} for i in group['deviceIDArray'] if switches[i] != {}}
                         switch_rooms_list.extend([{'id':switches[i]['id'], 'room':room_name} for i in group['deviceIDArray'] if switches[i] != {}])
-                        rooms.append({'name':room_name,'state':False,'brightness':0,'switches':switch_array})
-        self.room_data = {'rooms':{room['name']:{'state':room['state'],'brightness':room['brightness'],'switches':room['switches']} for room in rooms},'switchID_to_room':{dev['id']:dev['room'] for dev in switch_rooms_list}}
+                        rooms.append({'name':room_name, 'switches':switch_array})
+        self.room_data = {'rooms':{room['name']:{'entity_id':'','state':False,'brightness':0,'switches':room['switches']} for room in rooms},'switchID_to_room':{dev['id']:dev['room'] for dev in switch_rooms_list}}
         return self.room_data
 
     async def _get_devices(self):
