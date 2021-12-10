@@ -91,16 +91,20 @@ class CyncRoomEntity(LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light  brightness."""
-        brightness = round((kwargs.get(ATTR_BRIGHTNESS,255) * 100) / 255)
+        self._room_data['state'] = True
+        self._room_data['brightness'] = kwargs.get(ATTR_BRIGHTNESS,255)
+        br = round((self._room_data['brightness'] * 100) / 255)
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(CYNC_TURN_ON,json={'room':self._room, 'brightness':brightness}) as resp:
+                async with session.post(CYNC_TURN_ON,json={'room':self._room, 'brightness':br}) as resp:
                     pass
         except:
             raise CyncAddonUnavailable        
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
+        self._room_data['state'] = False
+        self._room_data['brightness'] = 0
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(CYNC_TURN_OFF,json={'room':self._room}) as resp:
