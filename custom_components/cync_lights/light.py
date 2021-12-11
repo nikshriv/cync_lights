@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import DOMAIN
 CYNC_TURN_ON = "http://78b44672-cync-lights:3001/turn-on"
 CYNC_TURN_OFF = "http://78b44672-cync-lights:3001/turn-off"
-CYNC_REGISTER_ID = "http://78b44672-cync-lights:3001/entity-id"
+CYNC_REGISTER_ID = "http://78b44672-cync-lights:3001/init"
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -39,14 +39,17 @@ class CyncRoomEntity(LightEntity):
 
     def __init__(self, room, room_data) -> None:
         """Initialize the room."""
+
         self._room = room
         self._room_data = room_data
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
+
+        self._room_data['entity_id'] = self.entity_id
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(CYNC_REGISTER_ID,json={'room':self._room,'entity_id':self.entity_id}) as resp:
+                async with session.post(CYNC_REGISTER_ID,json={'room':self._room,'room_data':self._room_data}) as resp:
                     pass
         except:
             raise CyncAddonUnavailable 
@@ -94,23 +97,36 @@ class CyncRoomEntity(LightEntity):
         self._room_data['state'] = True
         self._room_data['brightness'] = kwargs.get(ATTR_BRIGHTNESS,255)
         br = round((self._room_data['brightness'] * 100) / 255)
+        for sw,_ in self._room_data['switches'].items():
+            self._room_data['switches'][sw]['state'] = True
+            self._room_data['switches'][sw]['brightness'] = br
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(CYNC_TURN_ON,json={'room':self._room, 'brightness':br}) as resp:
                     pass
         except:
-            raise CyncAddonUnavailable        
+            raise CyncAddonUnavailable
+
+        self.async_write_ha_state()
+    
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
         self._room_data['state'] = False
         self._room_data['brightness'] = 0
+        for sw,_ in self._room_data['switches'].items():
+            self._room_data['switches'][sw]['state'] = False
+            self._room_data['switches'][sw]['brightness'] = 0
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(CYNC_TURN_OFF,json={'room':self._room}) as resp:
                     pass
         except:
-            raise CyncAddonUnavailable 
+            raise CyncAddonUnavailable
+
+        self.async_write_ha_state()
 
 class CyncAddonUnavailable(HomeAssistantError):
     """Error raised when Cync Lights Addon has not been started before installing this integration"""
