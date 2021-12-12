@@ -15,6 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
 CYNC_TURN_ON = "http://78b44672-cync-lights:3001/turn-on"
+CYNC_SET_BRIGHTNESS = "http://78b44672-cync-lights:3001/set-brightness"
 CYNC_TURN_OFF = "http://78b44672-cync-lights:3001/turn-off"
 CYNC_REGISTER_ID = "http://78b44672-cync-lights:3001/init"
 
@@ -95,18 +96,29 @@ class CyncRoomEntity(LightEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light  brightness."""
         self._room_data['state'] = True
-        self._room_data['brightness'] = kwargs.get(ATTR_BRIGHTNESS,255)
-        br = round((self._room_data['brightness'] * 100) / 255)
-        for sw,_ in self._room_data['switches'].items():
-            self._room_data['switches'][sw]['state'] = True
-            self._room_data['switches'][sw]['brightness'] = br
+        if (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None :
+            self._room_data['brightness'] = brightness
+            br = round((self._room_data['brightness'] * 100) / 255)
+            for sw,_ in self._room_data['switches'].items():
+                self._room_data['switches'][sw]['state'] = True
+                self._room_data['switches'][sw]['brightness'] = br
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(CYNC_TURN_ON,json={'room':self._room, 'brightness':br}) as resp:
-                    pass
-        except:
-            raise CyncAddonUnavailable
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(CYNC_SET_BRIGHTNESS,json={'room':self._room, 'brightness':br}) as resp:
+                        pass
+            except:
+                raise CyncAddonUnavailable
+        else:
+            for sw,_ in self._room_data['switches'].items():
+                self._room_data['switches'][sw]['state'] = True
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(CYNC_TURN_ON,json={'room':self._room}) as resp:
+                        pass
+            except:
+                raise CyncAddonUnavailable            
 
         self.async_write_ha_state()
     
@@ -114,10 +126,8 @@ class CyncRoomEntity(LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
         self._room_data['state'] = False
-        self._room_data['brightness'] = 0
         for sw,_ in self._room_data['switches'].items():
             self._room_data['switches'][sw]['state'] = False
-            self._room_data['switches'][sw]['brightness'] = 0
 
         try:
             async with aiohttp.ClientSession() as session:
