@@ -31,13 +31,13 @@ async def async_setup_entry(
         await setup_cync_addon(data)
     except CyncAddonUnavailable:
         pass
-    else:
-        new_devices = []
-        for room,room_data in data['cync_room_data']['rooms'].items():
-            light_entity = CyncRoomEntity(room,room_data)
-            new_devices.append(light_entity)
-        if new_devices:
-            async_add_entities(new_devices)
+    
+    new_devices = []
+    for room,room_data in data['cync_room_data']['rooms'].items():
+        light_entity = CyncRoomEntity(room,room_data)
+        new_devices.append(light_entity)
+    if new_devices:
+        async_add_entities(new_devices)
 
 async def setup_cync_addon(data):
     """Sends setup data to cync lights addon"""
