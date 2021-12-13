@@ -18,6 +18,7 @@ CYNC_TURN_ON = "http://78b44672-cync-lights:3001/turn-on"
 CYNC_SET_BRIGHTNESS = "http://78b44672-cync-lights:3001/set-brightness"
 CYNC_TURN_OFF = "http://78b44672-cync-lights:3001/turn-off"
 CYNC_REGISTER_ID = "http://78b44672-cync-lights:3001/init"
+CYNC_ADDON_SETUP = "http://78b44672-cync-lights:3001/setup"
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -26,12 +27,29 @@ async def async_setup_entry(
 ) -> None:
     data = hass.data[DOMAIN][config_entry.entry_id]
 
-    new_devices = []
-    for room,room_data in data['cync_room_data']['rooms'].items():
-        light_entity = CyncRoomEntity(room,room_data)
-        new_devices.append(light_entity)
-    if new_devices:
-        async_add_entities(new_devices)
+    try:
+        await setup_cync_addon(data)
+    except CyncAddonUnavailable:
+        pass
+    else:
+        new_devices = []
+        for room,room_data in data['cync_room_data']['rooms'].items():
+            light_entity = CyncRoomEntity(room,room_data)
+            new_devices.append(light_entity)
+        if new_devices:
+            async_add_entities(new_devices)
+
+async def setup_cync_addon(data):
+    """Sends setup data to cync lights addon"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(CYNC_ADDON_SETUP, json=data) as resp:
+                if resp.status == 200:
+                    return
+                else:
+                    raise CyncAddonUnavailable
+    except:
+        raise CyncAddonUnavailable
 
 class CyncRoomEntity(LightEntity):
     """Representation of Light."""
