@@ -17,7 +17,6 @@ from .const import DOMAIN
 CYNC_TURN_ON = "http://78b44672-cync-lights:3001/turn-on"
 CYNC_SET_BRIGHTNESS = "http://78b44672-cync-lights:3001/set-brightness"
 CYNC_TURN_OFF = "http://78b44672-cync-lights:3001/turn-off"
-CYNC_REGISTER_ID = "http://78b44672-cync-lights:3001/init"
 CYNC_ADDON_SETUP = "http://78b44672-cync-lights:3001/setup"
 
 async def async_setup_entry(
@@ -27,40 +26,25 @@ async def async_setup_entry(
 ) -> None:
     data = hass.data[DOMAIN][config_entry.entry_id]
 
-    try:
-        await setup_cync_addon(data)
-    except CyncAddonUnavailable:
-        pass
-    
     new_devices = []
     for room,room_data in data['cync_room_data']['rooms'].items():
-        light_entity = CyncRoomEntity(room,room_data)
+        light_entity = CyncRoomEntity(room,room_data,data,config_entry.entry_id)
         new_devices.append(light_entity)
     if new_devices:
         async_add_entities(new_devices)
-
-async def setup_cync_addon(data):
-    """Sends setup data to cync lights addon"""
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(CYNC_ADDON_SETUP, json=data) as resp:
-                if resp.status == 200:
-                    return
-                else:
-                    raise CyncAddonUnavailable
-    except:
-        raise CyncAddonUnavailable
 
 class CyncRoomEntity(LightEntity):
     """Representation of Light."""
 
     should_poll = False
 
-    def __init__(self, room, room_data) -> None:
+    def __init__(self, room, room_data, setup_data, entry_id) -> None:
         """Initialize the room."""
 
         self._room = room
         self._room_data = room_data
+        self._setup_data = setup_data
+        self._entry_id = entry_id
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
@@ -68,7 +52,7 @@ class CyncRoomEntity(LightEntity):
         self._room_data['entity_id'] = self.entity_id
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(CYNC_REGISTER_ID,json={'room':self._room,'room_data':self._room_data}) as resp:
+                async with session.post(CYNC_ADDON_SETUP,json={'room':self._room,'room_data':self._room_data,'setup_data':self._setup_data,'entry_id':self._entry_id}) as resp:
                     pass
         except:
             raise CyncAddonUnavailable 

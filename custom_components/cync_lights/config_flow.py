@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import DOMAIN
 from .get_user_data import (GetCyncUserData, GetGoogleCredentials)
 
-CYNC_ADDON_SETUP = "http://78b44672-cync-lights:3001/setup"
+CYNC_ADDON_INIT = "http://78b44672-cync-lights:3001/init"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ async def setup_cync_addon(data):
     """Sends setup data to cync lights addon"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(CYNC_ADDON_SETUP, json=data) as resp:
+            async with session.post(CYNC_ADDON_INIT, json={'source':'config_flow'}) as resp:
                 if resp.status == 200:
                     return
                 else:
