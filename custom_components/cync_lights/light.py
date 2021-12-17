@@ -24,11 +24,11 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ) -> None:
-    data = config_entry.data
+    data = hass.data[DOMAIN][config_entry.entry_id]
 
     new_devices = []
     for room,room_data in data['cync_room_data']['rooms'].items():
-        light_entity = CyncRoomEntity(room,room_data,data,config_entry.entry_id)
+        light_entity = CyncRoomEntity(room,room_data,data['cync_room_data'],data['cync_credentials'],data['google_credentials'],config_entry.entry_id)
         new_devices.append(light_entity)
     if new_devices:
         async_add_entities(new_devices)
@@ -38,12 +38,14 @@ class CyncRoomEntity(LightEntity):
 
     should_poll = False
 
-    def __init__(self, room, room_data, setup_data, entry_id) -> None:
+    def __init__(self, room, room_data, cync_room_data, cync_credentials, google_credentials, entry_id) -> None:
         """Initialize the room."""
 
         self._room = room
         self._room_data = room_data
-        self._setup_data = setup_data
+        self._cync_room_data = cync_room_data
+        self._cync_credentials = cync_credentials
+        self._google_credentials = google_credentials
         self._entry_id = entry_id
 
     async def async_added_to_hass(self) -> None:
@@ -52,7 +54,7 @@ class CyncRoomEntity(LightEntity):
         self._room_data['entity_id'] = self.entity_id
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(CYNC_ADDON_SETUP,json={'room':self._room,'room_data':self._room_data,'setup_data':self._setup_data,'entry_id':self._entry_id}) as resp:
+                async with session.post(CYNC_ADDON_SETUP,json={'room':self._room,'room_data':self._room_data,'cync_room_data':self._cync_room_data,'cync_credentials':self._cync_credentials,'google_credentials':self._google_credentials,'entry_id':self._entry_id}) as resp:
                     pass
         except:
             raise CyncAddonUnavailable 
