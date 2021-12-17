@@ -24,7 +24,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ) -> None:
-    data = hass.data[DOMAIN][config_entry.entry_id]
+    data = config_entry.data
 
     new_devices = []
     for room,room_data in data['cync_room_data']['rooms'].items():
