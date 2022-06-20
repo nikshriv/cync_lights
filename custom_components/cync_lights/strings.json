@@ -18,28 +18,30 @@
       },
       "client_secret": {
         "data": {
-          "two_factor_code":"Client Secret"
+          "client_secret":"Client Secret"
         },
-        "title": "Google Actions Client Secret",
-        "description": "Copy and paste the entire contents of your Google Actions client secret file here"
+        "title": "Google Client Secret",
+        "description": "Copy and paste the entire contents of your Google Web client secret file here"
       },
-      "google_auth_code": {
-        "data": {
-          "google_auth_code":"Google Authorization Code"
-        },
-        "title": "Google Authentication Code",
-        "description": "Please visit the Google Authentication page below and then paste the code above:\n {auth_url}"
+      "authorization_response": {
+        "title": "Google External Authorization",
+        "description": "Open the link below and authorize access to your Google Assistant"
+      },
+      "finish_setup": {
+        "title": "Finishing Setup",
+        "description": "Completing the last steps..."
       }
     },
     "error": {
-      "invalid_google_auth_code": "Invalid Google authorization code was invalid",
+      "invalid_google_auth": "Unable to obtain valid Google credentials",
       "invalid_client_secret": "Invalid Google client secret",
       "invalid_auth": "Invalid Cync user credentials or two factor code",
       "cync_addon_unavailable": "Cync Lights Addon is unavailable, please install the addon before signing in with this integration",
       "unknown": "Unknown error"
     },
     "abort": {
-      "reauth_successful": "Reauthorization successful"
+      "reauth_successful": "Reauthorization successful",
+      "google_auth_failed": "Google authorization failed, please retry"
     }
   }
 }

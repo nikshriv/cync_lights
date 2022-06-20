@@ -1,22 +1,23 @@
 """Config flow for Cync Room Lights integration."""
 from __future__ import annotations
-
 import logging
 from typing import Any
-
 import voluptuous as vol
 import aiohttp
 import json
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
-
+from homeassistant.helpers.network import get_url
+from homeassistant.components.http.view import HomeAssistantView
+from aiohttp import web_response
 from .const import DOMAIN
 from .get_user_data import (GetCyncUserData, GetGoogleCredentials)
 
 CYNC_ADDON_INIT = "http://78b44672-cync-lights:3001/init"
+AUTH_CALLBACK_PATH = "/googleauth"
+AUTH_CALLBACK_NAME = "googleauth"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,13 +37,8 @@ STEP_CLIENT_SECRET = vol.Schema(
         vol.Required("client_secret"): str,
     }
 )
-STEP_GOOGLE_AUTH_CODE = vol.Schema(
-    {
-        vol.Required("google_auth_code"): str,
-    }
-)
 
-async def validate_user(hub, user_input: dict[str, Any]) -> dict[str, Any]:
+async def cync_login(hub, user_input: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input"""
 
     response = await hub.authenticate(user_input["username"], user_input["password"])
@@ -54,7 +50,7 @@ async def validate_user(hub, user_input: dict[str, Any]) -> dict[str, Any]:
         else:
             raise InvalidAuth
 
-async def validate_two_factor_code(hub, user_input: dict[str, Any]) -> dict[str, Any]:
+async def submit_two_factor_code(hub, user_input: dict[str, Any]) -> dict[str, Any]:
     """Validate the two factor code"""
 
     response = await hub.auth_two_factor(user_input["two_factor_code"])
@@ -63,23 +59,22 @@ async def validate_two_factor_code(hub, user_input: dict[str, Any]) -> dict[str,
     else:
         raise InvalidAuth
 
-async def validate_client_secret(hass: HomeAssistant, hub, user_input: dict[str, Any]) -> dict[str, Any]:
+async def get_google_auth_url(hass: HomeAssistant, hub, user_input: dict[str, Any], flow_id, redirect_uri) -> dict[str, Any]:
     """Validate the two factor code"""
 
-    response = await hub.get_google_auth_url(hass, json.loads(user_input["client_secret"]))
+    response = await hub.get_google_auth_url(hass, json.loads(user_input["client_secret"]), flow_id, redirect_uri)
     if response['valid_client_secret']:
         return response['auth_url']
     else:
         raise InvalidClientSecret
 
-async def validate_google_auth_code(hass: HomeAssistant, hub, user_input: dict[str, Any]) -> dict[str, Any]:
+async def get_google_credentials(hass: HomeAssistant, hub, code) -> dict[str, Any]:
     """Validate the two factor code"""
-    code = user_input["google_auth_code"]
     response = await hub.get_google_credentials(hass,code)
     if response['success']:
         return json.loads(hub.google_flow.credentials.to_json())
     else:
-        raise InvalidGoogleAuthCode
+        raise InvalidGoogleAuth
 
 async def setup_cync_addon(data):
     """Sends setup data to cync lights addon"""
@@ -103,6 +98,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.google_hub = GetGoogleCredentials()
         self.data ={}
         self.auth_url = ''
+        self.googleAuthView = None
 
     VERSION = 1
 
@@ -118,7 +114,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         try:
-            info = await validate_user(self.cync_hub, user_input)
+            info = await cync_login(self.cync_hub, user_input)
         except TwoFactorCodeRequired:
             return await self.async_step_two_factor_code()
         except InvalidAuth:
@@ -146,7 +142,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         try:
-            info = await validate_two_factor_code(self.cync_hub, user_input)
+            info = await submit_two_factor_code(self.cync_hub, user_input)
         except InvalidAuth:
             errors["base"] = "invalid_auth"
         except Exception:  # pylint: disable=broad-except
@@ -170,36 +166,43 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         errors = {}
-
         try:
-            self.auth_url = await validate_client_secret(self.hass, self.google_hub, user_input)
+            redirect_uri = f"{get_url(self.hass, prefer_external = True)}{AUTH_CALLBACK_PATH}"
+            self.googleAuthView = GoogleAuthorizationCallbackView()
+            self.hass.http.register_view(self.googleAuthView)
+            self.auth_url = await get_google_auth_url(self.hass, self.google_hub, user_input, self.flow_id, redirect_uri)
         except InvalidClientSecret:
             errors["base"] = "invalid_client_secret"
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
-            return await self.async_step_google_auth_code()
+            return await self.async_step_authorization_response()
 
         return self.async_show_form(
             step_id="client_secret", data_schema=STEP_CLIENT_SECRET, errors=errors
         )
 
-    async def async_step_google_auth_code(
+    async def async_step_authorization_response(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle google auth code and create entry"""
-        if user_input is None:
-            return self.async_show_form(
-                step_id="google_auth_code", data_schema=STEP_GOOGLE_AUTH_CODE, description_placeholders = {"auth_url":self.auth_url}
-            )
+        """Handle google authorization response and create entry"""
+        if self.googleAuthView.google_auth_code == '':
+            return self.async_external_step(step_id="authorization_response", url=self.auth_url)
+
+        return self.async_external_step_done(next_step_id="finish_setup")
+
+    async def async_step_finish_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Obtain google credentials and create entry"""
 
         errors = {}
 
         try:
-            credentials = await validate_google_auth_code(self.hass, self.google_hub, user_input)
-        except InvalidGoogleAuthCode:
-            errors["base"] = "invalid_google_auth_code"
+            credentials = await get_google_credentials(self.hass, self.google_hub, self.googleAuthView.google_auth_code)
+        except InvalidGoogleAuth:
+            errors["base"] = "invalid_google_auth"
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
@@ -219,8 +222,28 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.hass.config_entries.async_reload(existing_entry.entry_id)
                     return self.async_abort(reason="reauth_successful")
 
-        return self.async_show_form(
-            step_id="google_auth_code", data_schema=STEP_GOOGLE_AUTH_CODE,description_placeholders = {"auth_url":self.auth_url}, errors=errors
+
+class GoogleAuthorizationCallbackView(HomeAssistantView):
+    """Handle callback from external auth."""
+
+    url = AUTH_CALLBACK_PATH
+    name = AUTH_CALLBACK_NAME
+    requires_auth = False
+
+    def __init__(self):
+        self.google_auth_code = ''
+
+    async def get(self, request):
+        """Receive authorization confirmation."""
+        hass = request.app["hass"]
+        self.google_auth_code = request.query["code"]
+        await hass.config_entries.flow.async_configure(
+            flow_id=request.query["state"]
+        )
+
+        return web_response.Response(
+            headers={"content-type": "text/html"},
+            text="<script>window.close()</script>Success! This window can be closed",
         )
 
 class TwoFactorCodeRequired(HomeAssistantError):
@@ -232,7 +255,7 @@ class InvalidAuth(HomeAssistantError):
 class InvalidClientSecret(HomeAssistantError):
     """Error to indicate there is invalid client secret."""
 
-class InvalidGoogleAuthCode(HomeAssistantError):
+class InvalidGoogleAuth(HomeAssistantError):
     """Error to indicate there is invalid google authorization code."""
 
 class CyncAddonUnavailable(HomeAssistantError):

@@ -97,14 +97,14 @@ class GetGoogleCredentials:
     def __init__(self):
         self.google_flow = None
 
-    async def get_google_auth_url(self, hass, client_config):
+    async def get_google_auth_url(self, hass, client_config, flow_id, redirect_uri):
         def flow():
             try:
-                self.google_flow = InstalledAppFlow.from_client_config(client_config = client_config, scopes = ["https://www.googleapis.com/auth/assistant-sdk-prototype"], redirect_uri = 'urn:ietf:wg:oauth:2.0:oob' )
+                self.google_flow = InstalledAppFlow.from_client_config(client_config = client_config, scopes = ["https://www.googleapis.com/auth/assistant-sdk-prototype"], redirect_uri = redirect_uri)
             except:
                 return {'valid_client_secret': False}
             else:
-                auth_url,_ = self.google_flow.authorization_url(prompt='consent')
+                auth_url,_ = self.google_flow.authorization_url(prompt='consent', state = flow_id)
                 return {'valid_client_secret': True, 'auth_url': auth_url}
 
         return await hass.async_add_executor_job(flow)
