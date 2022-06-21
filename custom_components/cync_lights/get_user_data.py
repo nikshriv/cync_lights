@@ -60,9 +60,12 @@ class GetCyncUserData:
         for device in devices:
             device_info = await self._get_properties(device['product_id'], device['id'])
             if 'groupsArray' in device_info and len(device_info['groupsArray']) > 0:
-                switches = [0]*(len(device_info['bulbsArray'])+1)
+                switch_array_length = 0
                 for bulb in device_info['bulbsArray']:
-                    switches[bulb['deviceID'] % 1000] = {}
+                    if bulb['deviceID'] % 1000 > switch_array_length:
+                        switch_array_length = bulb['deviceID'] % 1000
+                switches = [{}]*(switch_array_length+1)
+                for bulb in device_info['bulbsArray']:
                     if bulb['switchID'] != 0:
                         switches[bulb['deviceID'] % 1000] = {'id':str(bulb['switchID']),'name':bulb['displayName']}
                 for group in device_info['groupsArray']:
