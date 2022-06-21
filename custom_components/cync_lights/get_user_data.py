@@ -66,8 +66,9 @@ class GetCyncUserData:
                         switch_array_length = bulb['deviceID'] % 1000
                 switches = [{}]*(switch_array_length+1)
                 for bulb in device_info['bulbsArray']:
-                    if bulb['switchID'] != 0:
-                        switches[bulb['deviceID'] % 1000] = {'id':str(bulb['switchID']),'name':bulb['displayName']}
+                    if bulb.get('switchID') is not None:
+                        if bulb['switchID'] != 0:
+                            switches[bulb['deviceID'] % 1000] = {'id':str(bulb['switchID']),'name':bulb['displayName']}
                 for group in device_info['groupsArray']:
                     if len(group['deviceIDArray']) > 0:
                         room_name = group['displayName']
