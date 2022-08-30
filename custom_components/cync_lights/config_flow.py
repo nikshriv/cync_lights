@@ -215,7 +215,8 @@ class CyncUserData:
             home_info = await self._get_home_properties(home['product_id'], home['id'])
             if 'groupsArray' in home_info and len(home_info['groupsArray']) > 0:
                 home_id = str(home['id'])
-                home_devices[home_id] = [""]*(len(home_info['bulbsArray'])+1)
+                bulbs_array_length = max([device['deviceID']%1000 for device in home_info['bulbsArray']]) + 1
+                home_devices[home_id] = [""]*(bulbs_array_length)
                 home_controllers[home_id] = []
                 for device in home_info['bulbsArray']:
                     device_type = device['deviceType']
