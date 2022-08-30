@@ -1,10 +1,9 @@
 {
   "domain": "cync_lights",
-  "name": "Cync Room Lights",
-  "version": "0.1.3",
+  "name": "Cync Lights",
+  "version": "1.0.1",
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/cync_lights",
-  "requirements": ["google-assistant-grpc==0.3.0","google-auth-oauthlib==0.4.6"],
+  "documentation": "https://github.com/nikshriv/cync_lights",
   "ssdp": [],
   "zeroconf": [],
   "homekit": {},

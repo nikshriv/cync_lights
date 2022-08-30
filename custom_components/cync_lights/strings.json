@@ -16,32 +16,22 @@
         "title": "Cync Two Factor Authentication",
         "description": "Please check your email and enter the two factor code"
       },
-      "client_secret": {
-        "data": {
-          "client_secret":"Client Secret"
-        },
-        "title": "Google Client Secret",
-        "description": "Copy and paste the entire contents of your Google Web client secret file here"
-      },
-      "authorization_response": {
-        "title": "Google External Authorization",
-        "description": "Open the link below and authorize access to your Google Assistant"
-      },
-      "finish_setup": {
-        "title": "Finishing Setup",
-        "description": "Completing the last steps..."
+      "select_switches": {
+        "title": "Select Rooms, Switches, and Motion Sensors",
+        "description": "Please select the rooms, individual switches/bulbs, and motion sensors that you would like to add to Home Assistant",
+        "data":{
+          "rooms":"Rooms List",
+          "switches":"Switches List",
+          "motion_sensors":"Motion Sensors List"
+        }
       }
     },
     "error": {
-      "invalid_google_auth": "Unable to obtain valid Google credentials",
-      "invalid_client_secret": "Invalid Google client secret",
       "invalid_auth": "Invalid Cync user credentials or two factor code",
-      "cync_addon_unavailable": "Cync Lights Addon is unavailable, please install the addon before signing in with this integration",
-      "unknown": "Unknown error"
+      "unknown": "Unknown error occurred while retrieving Cync configuration"
     },
     "abort": {
-      "reauth_successful": "Reauthorization successful",
-      "google_auth_failed": "Google authorization failed, please retry"
+      "reauth_successful": "Reauthorization successful"
     }
   }
 }
