@@ -5,6 +5,7 @@ from homeassistant.components.binary_sensor import (BinarySensorDeviceClass, Bin
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
 
 async def async_setup_entry(
@@ -17,7 +18,7 @@ async def async_setup_entry(
     new_devices = []
     for sensor in hub.cync_motion_sensors:
         if not hub.cync_motion_sensors[sensor]._update_callback and sensor in hub.options["motion_sensors"]:
-            new_devices.append(CyncMotionSensorEntity(hub.cync_motion_sensors[sensor]))
+            new_devices.append(CyncMotionSensorEntity(hub.cync_motion_sensors[sensor],hub))
 
     if new_devices:
         async_add_entities(new_devices)
@@ -28,9 +29,10 @@ class CyncMotionSensorEntity(BinarySensorEntity):
 
     should_poll = False
 
-    def __init__(self, motion_sensor) -> None:
+    def __init__(self, motion_sensor, hub) -> None:
         """Initialize the sensor."""
         self.motion_sensor = motion_sensor
+        self.cync_hub = hub
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
@@ -39,6 +41,15 @@ class CyncMotionSensorEntity(BinarySensorEntity):
     async def async_will_remove_from_hass(self) -> None:
         """Entity being removed from hass."""
         self.motion_sensor.reset()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return DeviceInfo(
+            identifiers = {(DOMAIN, f"{self.motion_sensor.room.name} ({self.motion_sensor.home_name})")},
+            manufacturer = "Cync by Savant",
+            name = f"{self.motion_sensor.room.name} ({self.motion_sensor.home_name})",
+        )
 
     @property
     def unique_id(self) -> str:

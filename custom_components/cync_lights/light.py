@@ -5,8 +5,10 @@ from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, AT
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
 import logging
+import math
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +50,15 @@ class CyncRoomEntity(LightEntity):
     async def async_will_remove_from_hass(self) -> None:
         """Entity being removed from hass."""
         self.room.reset()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return DeviceInfo(
+            identifiers = {(DOMAIN, f"{self.room.name} ({self.room.home_name})")},
+            manufacturer = "Cync by Savant",
+            name = f"{self.room.name} ({self.room.home_name})",
+        )
 
     @property
     def unique_id(self) -> str:
@@ -126,15 +137,17 @@ class CyncRoomEntity(LightEntity):
         """Turn on the light."""
 
         if (rgb := kwargs.get(ATTR_RGB_COLOR)) is not None and (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None:
-            self.cync_hub.combo_control(255, 254, rgb, self.room.room_controller, self.room.mesh_id)
-            self.cync_hub.combo_control(round(brightness*100/255), 255, [255,255,255], self.room.room_controller, self.room.mesh_id)
+            if math.isclose(brightness, max([self.room.rgb['r'],self.room.rgb['g'],self.room.rgb['b']])*self.room.brightness/100, abs_tol = 2):
+                self.cync_hub.combo_control(self.room.brightness, 254, rgb, self.room.room_controller, self.room.mesh_id)
+            else:
+                self.cync_hub.combo_control(round(brightness*100/255), 255, [255,255,255], self.room.room_controller, self.room.mesh_id)
         elif kwargs.get(ATTR_RGB_COLOR) is None and kwargs.get(ATTR_COLOR_TEMP) is None and (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None:
             if self.color_mode == ColorMode.RGB or self.color_mode == ColorMode.COLOR_TEMP:
                 self.cync_hub.combo_control(round(brightness*100/255), 255, [255,255,255], self.room.room_controller, self.room.mesh_id)
             else:
                 self.cync_hub.set_brightness(round(brightness*100/255), self.room.room_controller, self.room.mesh_id)
         elif (rgb := kwargs.get(ATTR_RGB_COLOR)) is not None and kwargs.get(ATTR_BRIGHTNESS) is None:
-            self.cync_hub.combo_control(255, 254, rgb, self.room.room_controller, self.room.mesh_id)
+            self.cync_hub.combo_control(self.room.brightness, 254, rgb, self.room.room_controller, self.room.mesh_id)
         elif (color_temp := kwargs.get(ATTR_COLOR_TEMP)) is not None:
             ct = round(100*(self.max_mireds - color_temp)/(self.max_mireds - self.min_mireds))
             self.cync_hub.set_color_temp(ct, self.room.room_controller, self.room.mesh_id)
@@ -162,6 +175,15 @@ class CyncSwitchEntity(LightEntity):
     async def async_will_remove_from_hass(self) -> None:
         """Entity being removed from hass."""
         self.cync_switch.reset()
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return DeviceInfo(
+            identifiers = {(DOMAIN, f"{self.cync_switch.room.name} ({self.cync_switch.home_name})")},
+            manufacturer = "Cync by Savant",
+            name = f"{self.cync_switch.room.name} ({self.cync_switch.home_name})",
+        )
 
     @property
     def unique_id(self) -> str:
@@ -238,21 +260,23 @@ class CyncSwitchEntity(LightEntity):
         """Turn on the light."""
 
         if (rgb := kwargs.get(ATTR_RGB_COLOR)) is not None and (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None:
-            self.cync_hub.combo_control(255, 254, rgb, self.cync_switch.switch_controller, self.cync_switch.mesh_id)
-            self.cync_hub.combo_control(round(brightness*100/255), 255, [255,255,255], self.cync_switch.switch_controller, self.cync_switch.mesh_id)
+            if math.isclose(brightness, max([self.cync_switch.rgb['r'],self.cync_switch.rgb['g'],self.cync_switch.rgb['b']])*self.cync_switch.brightness/100, abs_tol = 2):
+                self.cync_hub.combo_control(self.cync_switch.brightness, 254, rgb, self.cync_switch.switch_controller, self.cync_switch.mesh_id)
+            else:
+                self.cync_hub.combo_control(round(brightness*100/255), 255, [255,255,255], self.cync_switch.switch_controller, self.cync_switch.mesh_id)
         elif kwargs.get(ATTR_RGB_COLOR) is None and kwargs.get(ATTR_COLOR_TEMP) is None and (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None:
             if self.color_mode == ColorMode.RGB or self.color_mode == ColorMode.COLOR_TEMP:
                 self.cync_hub.combo_control(round(brightness*100/255), 255, [255,255,255], self.cync_switch.switch_controller, self.cync_switch.mesh_id)
             else:
                 self.cync_hub.set_brightness(round(brightness*100/255), self.cync_switch.switch_controller, self.cync_switch.mesh_id)
         elif (rgb := kwargs.get(ATTR_RGB_COLOR)) is not None and kwargs.get(ATTR_BRIGHTNESS) is None:
-            self.cync_hub.combo_control(255, 254, rgb, self.cync_switch.switch_controller, self.cync_switch.mesh_id)
+            self.cync_hub.combo_control(self.cync_switch.brightness, 254, rgb, self.cync_switch.switch_controller, self.cync_switch.mesh_id)
         elif (color_temp := kwargs.get(ATTR_COLOR_TEMP)) is not None:
             ct = round(100*(self.max_mireds - color_temp)/(self.max_mireds - self.min_mireds))
             self.cync_hub.set_color_temp(ct, self.cync_switch.switch_controller, self.cync_switch.mesh_id)
         else:
             self.cync_hub.turn_on(self.cync_switch.switch_controller, self.cync_switch.mesh_id)
-            
+
     def turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
         self.cync_hub.turn_off(self.cync_switch.switch_controller, self.cync_switch.mesh_id)

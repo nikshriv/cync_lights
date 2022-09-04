@@ -24,7 +24,7 @@ class CyncHub:
         self.options = user_data['options']
         self.cync_rooms = {room_id:CyncRoom(room_id,room_info) for room_id,room_info in user_data['cync_config']['rooms'].items()}
         self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms[switch_info['room']]) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info["ONOFF"]}
-        self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["MOTION"]}
+        self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms[device_info['room']]) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["MOTION"]}
         self.shutting_down = False
 
     def start_tcp_client(self):
@@ -161,6 +161,7 @@ class CyncRoom:
 
         self.room_id = room_id
         self.name = room_info['name']
+        self.home_name = room_info['home_name']
         self.mesh_id = int(room_info['mesh_id']).to_bytes(2,'little')
         self.power_state = False
         self.brightness = 0
@@ -220,6 +221,7 @@ class CyncSwitch:
         
         self.switch_id = switch_id
         self.name = switch_info['name']
+        self.home_name = switch_info['home_name']
         self.mesh_id = switch_info['mesh_id'].to_bytes(2,'little')
         self.room = room
         self.power_state = False
@@ -256,10 +258,12 @@ class CyncSwitch:
 
 class CyncMotionSensor:
 
-    def __init__(self, device_id, device_info):
+    def __init__(self, device_id, device_info, room):
         
         self.device_id = device_id
         self.name = device_info['name']
+        self.home_name = device_info['home_name']
+        self.room = room
         self.motion = False
         self._update_callback = None
 
