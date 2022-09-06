@@ -7,5 +7,6 @@ Control and monitor the state of your Cync Light switches. This integration is n
    URL: https://github.com/nikshriv/cync_lights 
    Category: Integration
 2. Install and restart HA
-3. Install the integration and sign in with your Cync credentials
-4. Select the rooms, individual switches, and motion sensors you would like to include
+3. Close your browser and reopen it, then Navigate back to your HA instance. (This is an issue with HACs)
+4. Install the integration and sign in with your Cync credentials
+5. Select the rooms, individual switches, and motion sensors you would like to include
