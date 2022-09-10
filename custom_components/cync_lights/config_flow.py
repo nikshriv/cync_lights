@@ -221,7 +221,7 @@ class CyncUserData:
                 for device in home_info['bulbsArray']:
                     device_type = device['deviceType']
                     device_id = device['mac']
-                    current_index = device['deviceID'] % home['id]
+                    current_index = device['deviceID'] % home['id']
                     home_devices[home_id][current_index] = device_id
                     devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name']}
                     if devices[device_id]["WIFICONTROL"] and 'switchID' in device and device['switchID'] > 0:
