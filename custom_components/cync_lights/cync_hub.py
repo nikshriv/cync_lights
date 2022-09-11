@@ -73,7 +73,14 @@ class CyncHub:
                 else:
                     data = []
                 try:
-                    if packet_type == 67 and packet_length >= 26 and int(packet[4]) == 1 and int(packet[5]) == 1 and int(packet[6]) == 6:
+                    if (packet_type == 115 or packet_type == 131) and packet_length >= 33 and int(packet[13]) == 219:
+                        home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
+                        deviceID = self.home_devices[home_id][struct.unpack("<H", packet[21:23])[0]]
+                        state = int(packet[27]) > 0
+                        brightness = int(packet[28])
+                        if deviceID in self.cync_switches:
+                            self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
+                    elif packet_type == 67 and packet_length >= 26 and int(packet[4]) == 1 and int(packet[5]) == 1 and int(packet[6]) == 6:
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         packet = packet[7:]
                         while len(packet) >= 19:
@@ -85,7 +92,7 @@ class CyncHub:
                             packet = packet[19:]
                             if deviceID in self.cync_switches:
                                 self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
-                    elif (packet_type == 115 or packet_type == 131) and packet_length >= 28 and int(packet[13]) == 84:
+                    elif (packet_type == 115 or packet_type == 131) and packet_length >= 25 and int(packet[13]) == 84:
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         deviceID = self.home_devices[home_id][int(packet[16])]
                         motion = int(packet[22]) > 0
