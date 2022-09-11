@@ -234,7 +234,7 @@ class CyncUserData:
                         devices[device_id]['switch_controller'] = device['switchID']
                         home_controllers[home_id].append(device['switchID'])
                 for room in home_info['groupsArray']:
-                    if len(room['deviceIDArray']) > 0:
+                    if len(room['deviceIDArray']) > 0 and len(home_controllers[home_id]) > 0:
                         room_id = home_id + '-' + str(room['groupID'])
                         room_controller = home_controllers[home_id][0]
                         available_room_controllers = [id for id in room['deviceIDArray'] if 'switch_controller' in devices[home_devices[home_id][id]]]
