@@ -9,4 +9,4 @@ Control and monitor the state of your Cync Light switches, bulbs, and plugs. Thi
 2. Install and restart HA
 3. Close your browser and reopen it, then Navigate back to your HA instance. (This is an issue with HACs)
 4. Install the integration and sign in with your Cync credentials
-5. Select the rooms, individual switches, and motion sensors you would like to include
+5. Select the rooms, individual switches, motion sensors, and ambient light sensors you would like to include
