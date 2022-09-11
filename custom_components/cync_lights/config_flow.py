@@ -125,6 +125,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.data['data']['options']['rooms'] = user_input["rooms"]
             self.data['data']['options']['switches'] = user_input["switches"]
             self.data['data']['options']['motion_sensors'] = user_input["motion_sensors"]
+            self.data['data']['options']['ambient_light_sensors'] = user_input["ambient_light_sensors"]
             return await self._async_finish_setup()
 
         switches_data_schema = vol.Schema(
@@ -141,6 +142,10 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "motion_sensors",
                     description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']]},
                 ): cv.multi_select({device_id : f'{device_info["name"]} ({self.data["data"]["cync_config"]["rooms"][device_info["room"]]["name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']}),
+                vol.Optional(
+                    "ambient_light_sensors",
+                    description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']]},
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({self.data["data"]["cync_config"]["rooms"][device_info["room"]]["name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']}),
             }
         )
         
@@ -223,7 +228,7 @@ class CyncUserData:
                     device_id = device['mac']
                     current_index = device['deviceID'] % home['id']
                     home_devices[home_id][current_index] = device_id
-                    devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name']}
+                    devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name']}
                     if devices[device_id]["WIFICONTROL"] and 'switchID' in device and device['switchID'] > 0:
                         deviceID_to_home[str(device['switchID'])] = home_id
                         devices[device_id]['switch_controller'] = device['switchID']

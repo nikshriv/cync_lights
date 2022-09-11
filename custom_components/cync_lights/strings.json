@@ -18,11 +18,12 @@
       },
       "select_switches": {
         "title": "Select Rooms, Switches, and Motion Sensors",
-        "description": "Please select the rooms, individual switches/bulbs, and motion sensors that you would like to add to Home Assistant",
+        "description": "Please select the rooms, individual switches/bulbs, motion sensors, and ambient light sensors that you would like to add to Home Assistant",
         "data":{
           "rooms":"Rooms List",
           "switches":"Switches List",
-          "motion_sensors":"Motion Sensors List"
+          "motion_sensors":"Motion Sensors List",
+          "ambient_light_sensors":"Ambient Light Sensors List"
         }
       }
     },

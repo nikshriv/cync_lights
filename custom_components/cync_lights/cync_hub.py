@@ -25,6 +25,7 @@ class CyncHub:
         self.cync_rooms = {room_id:CyncRoom(room_id,room_info) for room_id,room_info in user_data['cync_config']['rooms'].items()}
         self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms[switch_info['room']]) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info["ONOFF"]}
         self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms[device_info['room']]) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["MOTION"]}
+        self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms[device_info['room']]) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["AMBIENT_LIGHT"]}
         self.shutting_down = False
 
     def start_tcp_client(self):
@@ -88,8 +89,11 @@ class CyncHub:
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         deviceID = self.home_devices[home_id][int(packet[16])]
                         motion = int(packet[22]) > 0
+                        ambient_light = int(packet[24]) > 0
                         if deviceID in self.cync_motion_sensors:
                             self.cync_motion_sensors[deviceID].update_motion_sensor(motion)
+                        if deviceID in self.cync_ambient_light_sensors:
+                            self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
                     elif packet_type == 115 and packet_length > 51 and int(packet[13]) == 82:
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         packet = packet[22:]
@@ -277,6 +281,33 @@ class CyncMotionSensor:
 
     def update_motion_sensor(self,motion):
         self.motion = motion
+        self.publish_update()
+
+    def publish_update(self):
+        if self._update_callback:
+            self._update_callback()
+
+class CyncAmbientLightSensor:
+
+    def __init__(self, device_id, device_info, room):
+        
+        self.device_id = device_id
+        self.name = device_info['name']
+        self.home_name = device_info['home_name']
+        self.room = room
+        self.ambient_light = False
+        self._update_callback = None
+
+    def register(self, update_callback) -> None:
+        """Register callback, called when switch changes state."""
+        self._update_callback = update_callback
+
+    def reset(self) -> None:
+        """Remove previously registered callback."""
+        self._update_callback = None
+
+    def update_ambient_light_sensor(self,ambient_light):
+        self.ambient_light = ambient_light
         self.publish_update()
 
     def publish_update(self):
