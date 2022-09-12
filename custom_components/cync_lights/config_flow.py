@@ -137,15 +137,15 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     "switches",
                     description = {"suggested_value" : []},
-                ): cv.multi_select({switch_id : f'{sw_info["name"]} ({self.data["data"]["cync_config"]["rooms"][sw_info["room"]]["name"]}:{sw_info["home_name"]})' for switch_id,sw_info in self.data["data"]["cync_config"]["devices"].items() if sw_info['ONOFF']}),
+                ): cv.multi_select({switch_id : f'{sw_info["name"]} ({sw_info["room_name"]}:{sw_info["home_name"]})' for switch_id,sw_info in self.data["data"]["cync_config"]["devices"].items() if sw_info['ONOFF']}),
                 vol.Optional(
                     "motion_sensors",
                     description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']]},
-                ): cv.multi_select({device_id : f'{device_info["name"]} ({self.data["data"]["cync_config"]["rooms"][device_info["room"]]["name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']}),
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']}),
                 vol.Optional(
                     "ambient_light_sensors",
                     description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']]},
-                ): cv.multi_select({device_id : f'{device_info["name"]} ({self.data["data"]["cync_config"]["rooms"][device_info["room"]]["name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']}),
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']}),
             }
         )
         
@@ -228,7 +228,7 @@ class CyncUserData:
                     device_id = str(device['deviceID'])
                     current_index = device['deviceID'] % home['id']
                     home_devices[home_id][current_index] = device_id
-                    devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name']}
+                    devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name'], 'room':'', 'room_name':''}
                     if devices[device_id]["WIFICONTROL"] and 'switchID' in device and device['switchID'] > 0:
                         deviceID_to_home[str(device['switchID'])] = home_id
                         devices[device_id]['switch_controller'] = device['switchID']
@@ -242,6 +242,7 @@ class CyncUserData:
                             room_controller = devices[home_devices[home_id][available_room_controllers[0]]]['switch_controller']
                         for id in room['deviceIDArray']:
                             devices[home_devices[home_id][id]]['room'] = room_id
+                            devices[home_devices[home_id][id]]['room_name'] = room['displayName']
                             if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]]['ONOFF']:
                                 devices[home_devices[home_id][id]]['switch_controller'] = room_controller
                         rooms[room_id] = {'name':room['displayName'],'mesh_id': room['groupID'], 'room_controller':room_controller,'home_name':home['name'], 'switches':{home_devices[home_id][i]:{'state':False, 'brightness':0, 'color_temp':0, 'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 'ONOFF':devices[home_devices[home_id][i]]['ONOFF'], 'BRIGHTNESS':devices[home_devices[home_id][i]]['BRIGHTNESS'], 'COLORTEMP':devices[home_devices[home_id][i]]['COLORTEMP'], 'RGB':devices[home_devices[home_id][i]]['RGB']} for i in room['deviceIDArray'] if devices[home_devices[home_id][i]]['ONOFF']}}

@@ -23,9 +23,9 @@ class CyncHub:
         self.logged_in = False
         self.options = user_data['options']
         self.cync_rooms = {room_id:CyncRoom(room_id,room_info) for room_id,room_info in user_data['cync_config']['rooms'].items()}
-        self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms[switch_info['room']]) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info["ONOFF"]}
-        self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms[device_info['room']]) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["MOTION"]}
-        self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms[device_info['room']]) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["AMBIENT_LIGHT"]}
+        self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms.get(switch_info['room'], None)) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info["ONOFF"]}
+        self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["MOTION"]}
+        self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["AMBIENT_LIGHT"]}
         self.shutting_down = False
 
     def start_tcp_client(self):
@@ -261,7 +261,8 @@ class CyncSwitch:
             self.color_temp = color_temp 
             self.rgb = rgb
             self.publish_update()
-            self.room.update_room(self.switch_id,self.power_state,self.brightness,self.color_temp,self.rgb)
+            if self.room:
+                self.room.update_room(self.switch_id,self.power_state,self.brightness,self.color_temp,self.rgb)
 
     def publish_update(self):
         if self._update_callback:
