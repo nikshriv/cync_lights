@@ -220,13 +220,13 @@ class CyncUserData:
             home_info = await self._get_home_properties(home['product_id'], home['id'])
             if 'groupsArray' in home_info and len(home_info['groupsArray']) > 0:
                 home_id = str(home['id'])
-                bulbs_array_length = max([device['deviceID'] % home['id'] for device in home_info['bulbsArray']]) + 1
+                bulbs_array_length = max([((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256) for device in home_info['bulbsArray']]) + 1
                 home_devices[home_id] = [""]*(bulbs_array_length)
                 home_controllers[home_id] = []
                 for device in home_info['bulbsArray']:
                     device_type = device['deviceType']
                     device_id = str(device['deviceID'])
-                    current_index = device['deviceID'] % home['id']
+                    current_index = ((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256)
                     home_devices[home_id][current_index] = device_id
                     devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name'], 'room':'', 'room_name':''}
                     if devices[device_id]["WIFICONTROL"] and 'switchID' in device and device['switchID'] > 0:
