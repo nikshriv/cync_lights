@@ -241,11 +241,12 @@ class CyncUserData:
                         if len(available_room_controllers) > 0:
                             room_controller = devices[home_devices[home_id][available_room_controllers[0]]]['switch_controller']
                         for id in room['deviceIDArray']:
+                            id = (id % 1000) + (int(id / 1000)*256)
                             devices[home_devices[home_id][id]]['room'] = room_id
                             devices[home_devices[home_id][id]]['room_name'] = room['displayName']
                             if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]]['ONOFF']:
                                 devices[home_devices[home_id][id]]['switch_controller'] = room_controller
-                        rooms[room_id] = {'name':room['displayName'],'mesh_id': room['groupID'], 'room_controller':room_controller,'home_name':home['name'], 'switches':{home_devices[home_id][i]:{'state':False, 'brightness':0, 'color_temp':0, 'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 'ONOFF':devices[home_devices[home_id][i]]['ONOFF'], 'BRIGHTNESS':devices[home_devices[home_id][i]]['BRIGHTNESS'], 'COLORTEMP':devices[home_devices[home_id][i]]['COLORTEMP'], 'RGB':devices[home_devices[home_id][i]]['RGB']} for i in room['deviceIDArray'] if devices[home_devices[home_id][i]]['ONOFF']}}
+                        rooms[room_id] = {'name':room['displayName'],'mesh_id': room['groupID'], 'room_controller':room_controller,'home_name':home['name'], 'switches':{home_devices[home_id][(i%1000)+(int(i/1000)*256)]:{'state':False, 'brightness':0, 'color_temp':0, 'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 'ONOFF':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['ONOFF'], 'BRIGHTNESS':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['BRIGHTNESS'], 'COLORTEMP':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['COLORTEMP'], 'RGB':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['RGB']} for i in room['deviceIDArray'] if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['ONOFF']}}
         return {'rooms':rooms, 'devices':devices, 'home_devices':home_devices, 'home_controllers':home_controllers, 'deviceID_to_home':deviceID_to_home}
 
     async def _get_homes(self):
