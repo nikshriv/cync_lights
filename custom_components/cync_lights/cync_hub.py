@@ -10,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class CyncHub:
 
-    def __init__(self, user_data):
+    def __init__(self, user_data, remove_options_update_listener):
 
         self.thread = None
         self.loop = None
@@ -21,12 +21,12 @@ class CyncHub:
         self.deviceID_to_home = user_data['cync_config']['deviceID_to_home']
         self.login_code = bytearray(user_data['cync_credentials'])
         self.logged_in = False
-        self.options = user_data['options']
         self.cync_rooms = {room_id:CyncRoom(room_id,room_info) for room_id,room_info in user_data['cync_config']['rooms'].items()}
-        self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms.get(switch_info['room'], None)) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info["ONOFF"]}
-        self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["MOTION"]}
-        self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info["AMBIENT_LIGHT"]}
+        self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms.get(switch_info['room'], None)) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info.get("ONOFF",False)}
+        self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info.get("MOTION",False)}
+        self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info.get("AMBIENT_LIGHT",False)}
         self.shutting_down = False
+        self.remove_options_update_listener = remove_options_update_listener
 
     def start_tcp_client(self):
         self.thread = threading.Thread(target=self._start_tcp_client,daemon=True)
@@ -74,6 +74,7 @@ class CyncHub:
                     data = []
                 try:
                     if (packet_type == 115 or packet_type == 131) and packet_length >= 33 and int(packet[13]) == 219:
+                        #parse state and brightness change packet
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         deviceID = self.home_devices[home_id][struct.unpack("<H", packet[21:23])[0]]
                         state = int(packet[27]) > 0
@@ -81,18 +82,27 @@ class CyncHub:
                         if deviceID in self.cync_switches:
                             self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
                     elif packet_type == 67 and packet_length >= 26 and int(packet[4]) == 1 and int(packet[5]) == 1 and int(packet[6]) == 6:
+                        #parse state packet
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         packet = packet[7:]
                         while len(packet) >= 19:
                             deviceID = self.home_devices[home_id][int(packet[3])]
-                            state = int(packet[4]) > 0
-                            brightness = int(packet[5])
-                            color_temp = int(packet[6])
-                            rgb = {'r':int(packet[7]),'g':int(packet[8]),'b':int(packet[9]),'active':int(packet[6])==254}
-                            packet = packet[19:]
                             if deviceID in self.cync_switches:
-                                self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
+                                if self.cync_switches[deviceID].elements > 1:
+                                    for i in range(self.cync_switches[deviceID].elements):
+                                        switch_id = self.home_devices[home_id][(i+1)*256 + int(packet[3])]
+                                        state = int((int(packet[5]) >> i) & int(packet[4])) > 0
+                                        brightness = 100 if state else 0
+                                        self.cync_switches[switch_id].update_switch(state, brightness, self.cync_switches[switch_id].color_temp, self.cync_switches[switch_id].rgb)
+                                else:
+                                    state = int(packet[4]) > 0
+                                    brightness = int(packet[5])
+                                    color_temp = int(packet[6])
+                                    rgb = {'r':int(packet[7]),'g':int(packet[8]),'b':int(packet[9]),'active':int(packet[6])==254}
+                                    self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
+                            packet = packet[19:]
                     elif (packet_type == 115 or packet_type == 131) and packet_length >= 25 and int(packet[13]) == 84:
+                        #parse motion and ambient light sensor packet
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         deviceID = self.home_devices[home_id][int(packet[16])]
                         motion = int(packet[22]) > 0
@@ -102,16 +112,24 @@ class CyncHub:
                         if deviceID in self.cync_ambient_light_sensors:
                             self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
                     elif packet_type == 115 and packet_length > 51 and int(packet[13]) == 82:
+                        #parse initial state packet
                         home_id = self.deviceID_to_home[str(struct.unpack(">I", packet[0:4])[0])]
                         packet = packet[22:]
                         while len(packet) > 24:
                             deviceID = self.home_devices[home_id][int(packet[0])]
-                            state = int(packet[8]) > 0
-                            brightness = int(packet[12])
-                            color_temp = int(packet[16])
-                            rgb = {'r':int(packet[20]),'g':int(packet[21]),'b':int(packet[22]),'active':int(packet[16])==254}
                             if deviceID in self.cync_switches:
-                                self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
+                                if self.cync_switches[deviceID].elements > 1:
+                                    for i in range(self.cync_switches[deviceID].elements):
+                                        switch_id = self.home_devices[home_id][(i+1)*256 + int(packet[0])]
+                                        state = int((int(packet[12]) >> i) & int(packet[8])) > 0
+                                        brightness = 100 if state else 0
+                                        self.cync_switches[switch_id].update_switch(state, brightness, self.cync_switches[switch_id].color_temp, self.cync_switches[switch_id].rgb)
+                                else:
+                                    state = int(packet[8]) > 0
+                                    brightness = int(packet[12])
+                                    color_temp = int(packet[16])
+                                    rgb = {'r':int(packet[20]),'g':int(packet[21]),'b':int(packet[22]),'active':int(packet[16])==254}
+                                    self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
                             packet = packet[24:]
                 except Exception as e:
                     _LOGGER.error(e)
@@ -149,10 +167,18 @@ class CyncHub:
         self.loop.call_soon_threadsafe(self.send_request,color_temp_request)
         
     def turn_on(self,switch_id,mesh_id):
+        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000010000') + ((428 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+        self.loop.call_soon_threadsafe(self.send_request,power_request)
+
+    def turn_on_support_brightness(self,switch_id,mesh_id):
         power_request = bytes.fromhex('730000001d') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00b000000000000') + mesh_id + bytes.fromhex('d0000001') + ((428 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
     def turn_off(self,switch_id,mesh_id):
+        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000000000') + ((427 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+        self.loop.call_soon_threadsafe(self.send_request,power_request)
+
+    def turn_off_support_brightness(self,switch_id,mesh_id):
         power_request = bytes.fromhex('730000001d') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00b000000000000') + mesh_id + bytes.fromhex('d0000000') + ((427 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
@@ -179,11 +205,11 @@ class CyncRoom:
         self.color_temp = 0
         self.rgb = {'r':0, 'g':0, 'b':0, 'active': False}
         self.switches = room_info['switches']
-        self.room_controller = room_info['room_controller']
+        self.controller = room_info['room_controller']
         self._update_callback = None
-        self.support_brightness = True in [sw_info['BRIGHTNESS'] for sw_info in self.switches.values()]
-        self.support_color_temp = True in [sw_info['COLORTEMP'] for sw_info in self.switches.values()]
-        self.support_rgb = True in [sw_info['RGB'] for sw_info in self.switches.values()]
+        self.support_brightness = True in [sw_info.get('BRIGHTNESS',False) for sw_info in self.switches.values()]
+        self.support_color_temp = True in [sw_info.get('COLORTEMP',False) for sw_info in self.switches.values()]
+        self.support_rgb = True in [sw_info.get('RGB',False) for sw_info in self.switches.values()]
 
     def register(self, update_callback) -> None:
         """Register callback, called when switch changes state."""
@@ -207,10 +233,10 @@ class CyncRoom:
         else: 
             _color_temp = self.color_temp
         if self.support_rgb:
-            r_list = [sw_info['rgb']['r'] for sw_info in self.switches.values() if sw_info['RGB']]
-            g_list = [sw_info['rgb']['g'] for sw_info in self.switches.values() if sw_info['RGB']]
-            b_list = [sw_info['rgb']['b'] for sw_info in self.switches.values() if sw_info['RGB']]
-            active = True in [sw_info['rgb']['active'] for sw_info in self.switches.values() if sw_info['RGB']]
+            r_list = [sw_info['rgb']['r'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
+            g_list = [sw_info['rgb']['g'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
+            b_list = [sw_info['rgb']['b'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
+            active = True in [sw_info['rgb']['active'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
             _rgb = {'r':round(sum(r_list)/len(r_list)), 'g':round(sum(g_list)/len(r_list)), 'b':round(sum(b_list)/len(r_list)), 'active':active}
         else:
             _rgb = self.rgb
@@ -239,12 +265,13 @@ class CyncSwitch:
         self.brightness = 0
         self.color_temp = 0
         self.rgb = {'r':0, 'g':0, 'b':0, 'active':False}
-        self.switch_controller = switch_info['switch_controller']
+        self.controller = switch_info['switch_controller']
         self._update_callback = None
-        self.support_brightness = switch_info['BRIGHTNESS']
-        self.support_color_temp = switch_info['COLORTEMP']
-        self.support_rgb = switch_info['RGB']
-
+        self.support_brightness = switch_info.get('BRIGHTNESS',False)
+        self.support_color_temp = switch_info.get('COLORTEMP',False)
+        self.support_rgb = switch_info.get('RGB',False)
+        self.plug = switch_info.get('PLUG',False)
+        self.elements = switch_info.get('MULTIELEMENT',1)
 
     def register(self, update_callback) -> None:
         """Register callback, called when switch changes state."""

@@ -34,5 +34,37 @@
     "abort": {
       "reauth_successful": "Reauthorization successful"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Reload Cync Configuration",
+        "description": "In case you have added new devices to your Cync account, you can opt to reauthorize and download your latest configuration.",
+        "data":{
+          "re-authenticate":"Reauthorize?"
+        }
+      },
+      "two_factor_code": {
+        "data": {
+          "two_factor_code":"Two Factor Code"
+        },
+        "title": "Cync Two Factor Authentication",
+        "description": "Please check your email and enter the two factor code"
+      },
+      "select_switches": {
+        "title": "Select Rooms, Switches, and Motion Sensors",
+        "description": "Please select the rooms, individual switches/bulbs, motion sensors, and ambient light sensors that you would like to add to Home Assistant",
+        "data":{
+          "rooms":"Rooms List",
+          "switches":"Switches List",
+          "motion_sensors":"Motion Sensors List",
+          "ambient_light_sensors":"Ambient Light Sensors List"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid Cync user credentials or two factor code",
+      "unknown": "Unknown error occurred while retrieving Cync configuration"
+    }
   }
 }

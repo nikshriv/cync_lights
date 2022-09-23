@@ -8,6 +8,7 @@ from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.core import callback
 from .const import DOMAIN,Capabilities
 
 API_AUTH = "https://api.gelighting.com/v2/user_auth"
@@ -35,7 +36,7 @@ async def cync_login(hub, user_input: dict[str, Any]) -> dict[str, Any]:
 
     response = await hub.authenticate(user_input["username"], user_input["password"])
     if response['authorized']:
-        return {'title':'cync_lights_'+ user_input['username'],'data':{'cync_credentials': hub.auth_code}}
+        return {'title':'cync_lights_'+ user_input['username'],'data':{'cync_credentials': hub.auth_code, 'user_input':user_input}}
     else:
         if response['two_factor_code_required']:
             raise TwoFactorCodeRequired
@@ -47,7 +48,7 @@ async def submit_two_factor_code(hub, user_input: dict[str, Any]) -> dict[str, A
 
     response = await hub.auth_two_factor(user_input["two_factor_code"])
     if response['authorized']:
-        return {'title':'cync_lights_'+ hub.username,'data':{'cync_credentials': hub.auth_code}}
+        return {'title':'cync_lights_'+ hub.username,'data':{'cync_credentials': hub.auth_code, 'user_input': {'username':hub.username,'password':hub.password}}}
     else:
         raise InvalidAuth
 
@@ -57,6 +58,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         self.cync_hub = CyncUserData()
         self.data ={}
+        self.options = {}
 
     VERSION = 1
 
@@ -81,6 +83,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
+            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
             self.data = info
             return await self.async_step_finish_setup()
 
@@ -102,7 +105,6 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             info = await submit_two_factor_code(self.cync_hub, user_input)
             info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
-            info["data"]["options"] = {}
         except InvalidAuth:
             errors["base"] = "invalid_auth"
         except Exception:  # pylint: disable=broad-except
@@ -122,10 +124,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Select rooms and individual switches for entity creation"""
         if user_input is not None:
-            self.data['data']['options']['rooms'] = user_input["rooms"]
-            self.data['data']['options']['switches'] = user_input["switches"]
-            self.data['data']['options']['motion_sensors'] = user_input["motion_sensors"]
-            self.data['data']['options']['ambient_light_sensors'] = user_input["ambient_light_sensors"]
+            self.options = user_input
             return await self._async_finish_setup()
 
         switches_data_schema = vol.Schema(
@@ -137,15 +136,15 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(
                     "switches",
                     description = {"suggested_value" : []},
-                ): cv.multi_select({switch_id : f'{sw_info["name"]} ({sw_info["room_name"]}:{sw_info["home_name"]})' for switch_id,sw_info in self.data["data"]["cync_config"]["devices"].items() if sw_info['ONOFF']}),
+                ): cv.multi_select({switch_id : f'{sw_info["name"]} ({sw_info["room_name"]}:{sw_info["home_name"]})' for switch_id,sw_info in self.data["data"]["cync_config"]["devices"].items() if sw_info.get('ONOFF',False) and sw_info.get('MULTIELEMENT',1) == 1}),
                 vol.Optional(
                     "motion_sensors",
                     description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']]},
-                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['MOTION']}),
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info.get('MOTION',False)}),
                 vol.Optional(
                     "ambient_light_sensors",
                     description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']]},
-                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['AMBIENT_LIGHT']}),
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info.get('AMBIENT_LIGHT',False)}),
             }
         )
         
@@ -158,11 +157,128 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         existing_entry = await self.async_set_unique_id(self.data['title'])
         if not existing_entry:              
-            return self.async_create_entry(title=self.data["title"], data=self.data["data"])
+            return self.async_create_entry(title=self.data["title"], data=self.data["data"], options=self.options)
         else:
-            self.hass.config_entries.async_update_entry(existing_entry, data=self.data['data'])
+            self.hass.config_entries.async_update_entry(existing_entry, data=self.data['data'], options=self.options)
             await self.hass.config_entries.async_reload(existing_entry.entry_id)
-            return self.async_abort(reason="reauth_successful")
+            return self.hass.config_entries.async_abort(reason="reauth_successful")
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Get the options flow for this handler."""
+        return CyncOptionsFlowHandler(config_entry)
+
+
+class CyncOptionsFlowHandler(config_entries.OptionsFlow):
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.entry = config_entry
+        self.cync_hub = CyncUserData()
+        self.data = {}
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+
+        if user_input is not None:
+            if user_input['re-authenticate'] == "No":
+                return await self.async_step_select_switches()
+            else:
+                return await self.async_step_auth()
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    "re-authenticate",default="No"): vol.In(["Yes","No"]),
+            }
+        )
+
+        return self.async_show_form(step_id="init", data_schema=data_schema)
+
+    async def async_step_auth(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Attempt to re-authenticate"""
+
+        errors = {}
+
+        try:
+            info = await cync_login(self.cync_hub, self.entry.data['user_input'])
+        except TwoFactorCodeRequired:
+            return await self.async_step_two_factor_code()
+        except InvalidAuth:
+            errors["base"] = "invalid_auth"
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception")
+            errors["base"] = "unknown"
+        else:
+            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
+            self.data = info
+            return await self.async_step_select_switches()
+
+    async def async_step_two_factor_code(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle two factor authentication for Cync account."""
+        if user_input is None:
+            return self.async_show_form(
+                step_id="two_factor_code", data_schema=STEP_TWO_FACTOR_CODE
+            )
+
+        errors = {}
+
+        try:
+            info = await submit_two_factor_code(self.cync_hub, user_input)
+            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
+        except InvalidAuth:
+            errors["base"] = "invalid_auth"
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception")
+            errors["base"] = "unknown"
+        else:
+            self.data = info
+            return await self.async_step_select_switches()
+
+        return self.async_show_form(
+            step_id="two_factor_code", data_schema=STEP_TWO_FACTOR_CODE, errors=errors
+        )
+
+    async def async_step_select_switches(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the options."""
+
+        if "data" in self.data and self.data["data"] != self.entry.data:
+            self.hass.config_entries.async_update_entry(self.entry, data = self.data["data"])
+
+        if user_input is not None:
+            return self.async_create_entry(title="",data=user_input)
+
+        switches_data_schema = vol.Schema(
+            {
+                vol.Optional(
+                    "rooms",
+                    description = {"suggested_value" : [room for room in self.entry.options["rooms"] if room in self.entry.data["cync_config"]["rooms"].keys()]},
+                ): cv.multi_select({room : f'{room_info["name"]} ({room_info["home_name"]})' for room,room_info in self.entry.data["cync_config"]["rooms"].items()}),
+                vol.Optional(
+                    "switches",
+                    description = {"suggested_value" : [sw for sw in self.entry.options["switches"] if sw in self.entry.data["cync_config"]["devices"].keys()]},
+                ): cv.multi_select({switch_id : f'{sw_info["name"]} ({sw_info["room_name"]}:{sw_info["home_name"]})' for switch_id,sw_info in self.entry.data["cync_config"]["devices"].items() if sw_info.get('ONOFF',False) and sw_info.get('MULTIELEMENT',1) == 1}),
+                vol.Optional(
+                    "motion_sensors",
+                    description = {"suggested_value" : [sensor for sensor in self.entry.options["motion_sensors"] if sensor in self.entry.data["cync_config"]["devices"].keys()]},
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.entry.data["cync_config"]["devices"].items() if device_info.get('MOTION',False)}),
+                vol.Optional(
+                    "ambient_light_sensors",
+                    description = {"suggested_value" : [sensor for sensor in self.entry.options["ambient_light_sensors"] if sensor in self.entry.data["cync_config"]["devices"].keys()]},
+                ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.entry.data["cync_config"]["devices"].items() if device_info.get('AMBIENT_LIGHT',False)}),
+            }
+        )
+
+        return self.async_show_form(step_id="select_switches", data_schema=switches_data_schema)
 
 
 class CyncUserData:
@@ -228,8 +344,23 @@ class CyncUserData:
                     device_id = str(device['deviceID'])
                     current_index = ((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256)
                     home_devices[home_id][current_index] = device_id
-                    devices[device_id] = {'name':device['displayName'],'mesh_id':current_index, 'ONOFF': device_type in Capabilities['ONOFF'], 'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], "COLORTEMP":device_type in Capabilities["COLORTEMP"], "RGB": device_type in Capabilities["RGB"], "MOTION": device_type in Capabilities["MOTION"], "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],'home_name':home['name'], 'room':'', 'room_name':''}
-                    if devices[device_id]["WIFICONTROL"] and 'switchID' in device and device['switchID'] > 0:
+                    devices[device_id] = {'name':device['displayName'],
+                        'mesh_id':current_index, 
+                        'ONOFF': device_type in Capabilities['ONOFF'], 
+                        'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], 
+                        "COLORTEMP":device_type in Capabilities["COLORTEMP"], 
+                        "RGB": device_type in Capabilities["RGB"], 
+                        "MOTION": device_type in Capabilities["MOTION"], 
+                        "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], 
+                        "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],
+                        "PLUG" : device_type in Capabilities["PLUG"],
+                        'home_name':home['name'], 
+                        'room':'', 
+                        'room_name':''
+                    }
+                    if str(device_type) in Capabilities['MULTIELEMENT'] and current_index < 256:
+                        devices[device_id]['MULTIELEMENT'] = Capabilities['MULTIELEMENT'][str(device_type)]
+                    if devices[device_id].get('WIFICONTROL',False) and 'switchID' in device and device['switchID'] > 0:
                         deviceID_to_home[str(device['switchID'])] = home_id
                         devices[device_id]['switch_controller'] = device['switchID']
                         home_controllers[home_id].append(device['switchID'])
@@ -237,16 +368,33 @@ class CyncUserData:
                     if len(room['deviceIDArray']) > 0 and len(home_controllers[home_id]) > 0:
                         room_id = home_id + '-' + str(room['groupID'])
                         room_controller = home_controllers[home_id][0]
-                        available_room_controllers = [id for id in room['deviceIDArray'] if 'switch_controller' in devices[home_devices[home_id][id]]]
+                        available_room_controllers = [(id%1000) + (int(id/1000)*256) for id in room['deviceIDArray'] if 'switch_controller' in devices[home_devices[home_id][(id%1000)+(int(id/1000)*256)]]]
                         if len(available_room_controllers) > 0:
                             room_controller = devices[home_devices[home_id][available_room_controllers[0]]]['switch_controller']
                         for id in room['deviceIDArray']:
                             id = (id % 1000) + (int(id / 1000)*256)
                             devices[home_devices[home_id][id]]['room'] = room_id
                             devices[home_devices[home_id][id]]['room_name'] = room['displayName']
-                            if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]]['ONOFF']:
+                            if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]].get('ONOFF',False):
                                 devices[home_devices[home_id][id]]['switch_controller'] = room_controller
-                        rooms[room_id] = {'name':room['displayName'],'mesh_id': room['groupID'], 'room_controller':room_controller,'home_name':home['name'], 'switches':{home_devices[home_id][(i%1000)+(int(i/1000)*256)]:{'state':False, 'brightness':0, 'color_temp':0, 'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 'ONOFF':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['ONOFF'], 'BRIGHTNESS':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['BRIGHTNESS'], 'COLORTEMP':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['COLORTEMP'], 'RGB':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['RGB']} for i in room['deviceIDArray'] if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]]['ONOFF']}}
+                        rooms[room_id] = {'name':room['displayName'],
+                            'mesh_id': room['groupID'], 
+                            'room_controller':room_controller,
+                            'home_name':home['name'], 
+                            'switches':{
+                                home_devices[home_id][(i%1000)+(int(i/1000)*256)]:{
+                                    'state':False, 
+                                    'brightness':0, 
+                                    'color_temp':0, 
+                                    'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 
+                                    'ONOFF':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False), 
+                                    'BRIGHTNESS':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('BRIGHTNESS',False), 
+                                    'COLORTEMP':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('COLORTEMP',False), 
+                                    'RGB':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('RGB',False)
+                                } 
+                                for i in room['deviceIDArray'] if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False)
+                            }
+                        }
         return {'rooms':rooms, 'devices':devices, 'home_devices':home_devices, 'home_controllers':home_controllers, 'deviceID_to_home':deviceID_to_home}
 
     async def _get_homes(self):

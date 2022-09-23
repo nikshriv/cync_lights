@@ -17,10 +17,10 @@ async def async_setup_entry(
 
     new_devices = []
     for sensor in hub.cync_motion_sensors:
-        if not hub.cync_motion_sensors[sensor]._update_callback and sensor in hub.options["motion_sensors"]:
+        if not hub.cync_motion_sensors[sensor]._update_callback and sensor in config_entry.options["motion_sensors"]:
             new_devices.append(CyncMotionSensorEntity(hub.cync_motion_sensors[sensor],hub))
     for sensor in hub.cync_ambient_light_sensors:
-        if not hub.cync_ambient_light_sensors[sensor]._update_callback and sensor in hub.options["ambient_light_sensors"]:
+        if not hub.cync_ambient_light_sensors[sensor]._update_callback and sensor in config_entry.options["ambient_light_sensors"]:
             new_devices.append(CyncAmbientLightSensorEntity(hub.cync_ambient_light_sensors[sensor],hub))
 
     if new_devices:
