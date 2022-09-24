@@ -137,7 +137,7 @@ class CyncRoomEntity(LightEntity):
     def _turn_on_support_brightness(self, attr_rgb, attr_br, attr_ct, dev):
         if attr_rgb is not None and attr_br is not None:
             if math.isclose(attr_br, max([dev.rgb['r'],dev.rgb['g'],dev.rgb['b']])*dev.brightness/100, abs_tol = 2):
-                self.cync_hub.combo_control(dev.brightness, 254, rgb, dev.controller, dev.mesh_id)
+                self.cync_hub.combo_control(dev.brightness, 254, attr_rgb, dev.controller, dev.mesh_id)
             else:
                 self.cync_hub.combo_control(round(attr_br*100/255), 255, [255,255,255], dev.controller, dev.mesh_id)
         elif attr_rgb is None and attr_ct is None and attr_br is not None:

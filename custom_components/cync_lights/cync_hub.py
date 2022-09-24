@@ -64,14 +64,11 @@ class CyncHub:
             data = await self.reader.read(1000)
             if len(data) == 0:
                 raise LostConnection
-            while len(data) >= 5:
+            while len(data) >= 30:
                 packet_type = int(data[0])
                 packet_length = struct.unpack(">I", data[1:5])[0]
                 packet = data[5:packet_length+5]
-                if len(data) > packet_length+5:
-                    data = data[packet_length+5:]
-                else:
-                    data = []
+                data = data[packet_length+5:]
                 try:
                     if (packet_type == 115 or packet_type == 131) and packet_length >= 33 and int(packet[13]) == 219:
                         #parse state and brightness change packet
