@@ -18,10 +18,10 @@ async def async_setup_entry(
     new_devices = []
     for sensor in hub.cync_motion_sensors:
         if not hub.cync_motion_sensors[sensor]._update_callback and sensor in config_entry.options["motion_sensors"]:
-            new_devices.append(CyncMotionSensorEntity(hub.cync_motion_sensors[sensor],hub))
+            new_devices.append(CyncMotionSensorEntity(hub.cync_motion_sensors[sensor]))
     for sensor in hub.cync_ambient_light_sensors:
         if not hub.cync_ambient_light_sensors[sensor]._update_callback and sensor in config_entry.options["ambient_light_sensors"]:
-            new_devices.append(CyncAmbientLightSensorEntity(hub.cync_ambient_light_sensors[sensor],hub))
+            new_devices.append(CyncAmbientLightSensorEntity(hub.cync_ambient_light_sensors[sensor]))
 
     if new_devices:
         async_add_entities(new_devices)
@@ -32,10 +32,9 @@ class CyncMotionSensorEntity(BinarySensorEntity):
 
     should_poll = False
 
-    def __init__(self, motion_sensor, hub) -> None:
+    def __init__(self, motion_sensor) -> None:
         """Initialize the sensor."""
         self.motion_sensor = motion_sensor
-        self.cync_hub = hub
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
@@ -79,10 +78,9 @@ class CyncAmbientLightSensorEntity(BinarySensorEntity):
 
     should_poll = False
 
-    def __init__(self, ambient_light_sensor, hub) -> None:
+    def __init__(self, ambient_light_sensor) -> None:
         """Initialize the sensor."""
         self.ambient_light_sensor = ambient_light_sensor
-        self.cync_hub = hub
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""

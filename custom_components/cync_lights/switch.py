@@ -1,6 +1,6 @@
 """Platform for light integration."""
 from __future__ import annotations
-from typing import Any, Tuple
+from typing import Any
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -21,7 +21,7 @@ async def async_setup_entry(
     new_devices = []
     for switch_id in hub.cync_switches:
         if not hub.cync_switches[switch_id]._update_callback and hub.cync_switches[switch_id].plug and switch_id in config_entry.options["switches"]:
-            new_devices.append(CyncPlugEntity(hub.cync_switches[switch_id],hub))
+            new_devices.append(CyncPlugEntity(hub.cync_switches[switch_id]))
 
     if new_devices:
         async_add_entities(new_devices)
@@ -33,10 +33,9 @@ class CyncPlugEntity(SwitchEntity):
 
     should_poll = False
 
-    def __init__(self, cync_switch, hub) -> None:
+    def __init__(self, cync_switch) -> None:
         """Initialize the light."""
         self.cync_switch = cync_switch
-        self.cync_hub = hub
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
@@ -77,8 +76,8 @@ class CyncPlugEntity(SwitchEntity):
             
     def turn_on(self, **kwargs: Any) -> None:
         """Turn on the outlet."""
-        self.cync_hub.turn_on(self.cync_switch.controller, self.cync_switch.mesh_id)
+        self.cync_switch.turn_on(None, None, None)
 
     def turn_off(self, **kwargs: Any) -> None:
         """Turn off the outlet."""
-        self.cync_hub.turn_off(self.cync_switch.controller, self.cync_switch.mesh_id)
+        self.cync_switch.turn_off()

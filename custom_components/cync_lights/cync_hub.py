@@ -2,11 +2,29 @@ import logging
 import threading
 import asyncio
 import struct
-import time
-from homeassistant.exceptions import HomeAssistantError
-from .const import Capabilities
+import aiohttp
+import math
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
+
+API_AUTH = "https://api.gelighting.com/v2/user_auth"
+API_REQUEST_CODE = "https://api.gelighting.com/v2/two_factor/email/verifycode"
+API_2FACTOR_AUTH = "https://api.gelighting.com/v2/user_auth/two_factor"
+API_DEVICES = "https://api.gelighting.com/v2/user/{user}/subscribe/devices"
+API_DEVICE_INFO = "https://api.gelighting.com/v2/product/{product_id}/device/{device_id}/property"
+
+Capabilities = {
+    "ONOFF":[1,5,6,7,8,9,10,11,13,14,15,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,48,49,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,80,81,82,83,85,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,156,158,159,160,161,162,163,164,165],
+    "BRIGHTNESS":[1,5,6,7,8,9,10,11,13,14,15,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,48,49,55,56,80,81,82,83,85,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,156,158,159,160,161,162,163,164,165],
+    "COLORTEMP":[5,6,7,8,10,11,14,15,19,20,21,22,23,25,26,28,29,30,31,32,33,34,35,80,82,83,85,129,130,131,132,133,135,136,137,138,139,140,141,142,143,144,145,146,147,153,154,156,158,159,160,161,162,163,164,165],
+    "RGB":[6,7,8,21,22,23,30,31,32,33,34,35,131,132,133,137,138,139,140,141,142,143,146,147,153,154,156,158,159,160,161,162,163,164,165],
+    "MOTION":[37,49,54,56],
+    "AMBIENT_LIGHT":[37,49,54,56],
+    "WIFICONTROL":[36,37,38,39,40,48,49,51,52,53,54,55,56,57,58,59,61,62,63,64,65,66,67,68,80,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,156,158,159,160,161,162,163,164,165],
+    "PLUG":[64,65,66,67,68],
+    "MULTIELEMENT":{'67':2}
+}
 
 class CyncHub:
 
@@ -21,8 +39,8 @@ class CyncHub:
         self.deviceID_to_home = user_data['cync_config']['deviceID_to_home']
         self.login_code = bytearray(user_data['cync_credentials'])
         self.logged_in = False
-        self.cync_rooms = {room_id:CyncRoom(room_id,room_info) for room_id,room_info in user_data['cync_config']['rooms'].items()}
-        self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms.get(switch_info['room'], None)) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info.get("ONOFF",False)}
+        self.cync_rooms = {room_id:CyncRoom(room_id,room_info,self) for room_id,room_info in user_data['cync_config']['rooms'].items()}
+        self.cync_switches = {switch_id:CyncSwitch(switch_id,switch_info,self.cync_rooms.get(switch_info['room'], None),self) for switch_id,switch_info in user_data['cync_config']['devices'].items() if switch_info.get("ONOFF",False)}
         self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info.get("MOTION",False)}
         self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info.get("AMBIENT_LIGHT",False)}
         self.shutting_down = False
@@ -147,36 +165,16 @@ class CyncHub:
 
         self.loop.create_task(send())
         
-    def set_brightness(self,brightness,switch_id,mesh_id):
-        brightness_request = bytes.fromhex('730000001d') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d20b000000000000') + mesh_id + bytes.fromhex('d20000') + int(brightness).to_bytes(1,'big') + ((431 + int(mesh_id[0]) + int(mesh_id[1]) + int(brightness))%256).to_bytes(1,'big') + bytes.fromhex('7e')
-        self.loop.call_soon_threadsafe(self.send_request,brightness_request)
-
-    def combo_control(self,brightness,color_tone,rgb,switch_id,mesh_id):
-        combo_request = bytes.fromhex('7300000022') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8f010000000000000') + mesh_id + bytes.fromhex('f0000001') + brightness.to_bytes(1,'big') + color_tone.to_bytes(1,'big') + rgb[0].to_bytes(1,'big') + rgb[1].to_bytes(1,'big') + rgb[2].to_bytes(1,'big') + ((497 + int(mesh_id[0]) + int(mesh_id[1]) + brightness + color_tone + sum(rgb))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+    def combo_control(self,state,brightness,color_tone,rgb,switch_id,mesh_id):
+        combo_request = bytes.fromhex('7300000022') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8f010000000000000') + mesh_id + bytes.fromhex('f00000') + (1 if state else 0).to_bytes(1,'big')  + brightness.to_bytes(1,'big') + color_tone.to_bytes(1,'big') + rgb[0].to_bytes(1,'big') + rgb[1].to_bytes(1,'big') + rgb[2].to_bytes(1,'big') + ((496 + int(mesh_id[0]) + int(mesh_id[1]) + (1 if state else 0) + brightness + color_tone + sum(rgb))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,combo_request)
 
-    def set_rgb_color(self,rgb,switch_id,mesh_id):
-        rgb_color_request = bytes.fromhex('7300000020') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8e20e000000000000') + mesh_id + bytes.fromhex('e2000004') + rgb[0].to_bytes(1,'big') + rgb[1].to_bytes(1,'big') + rgb[2].to_bytes(1,'big') + ((470 + int(mesh_id[0]) + int(mesh_id[1]) + sum(rgb))%256).to_bytes(1,'big') + bytes.fromhex('7e')
-        self.loop.call_soon_threadsafe(self.send_request,rgb_color_request)
-
-    def set_color_temp(self,color_temp,switch_id,mesh_id):
-        color_temp_request = bytes.fromhex('730000001e') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8e20c000000000000') + mesh_id + bytes.fromhex('e2000005') + color_temp.to_bytes(1,'big') + ((469 + int(mesh_id[0]) + int(mesh_id[1]) + color_temp)%256).to_bytes(1,'big') + bytes.fromhex('7e')
-        self.loop.call_soon_threadsafe(self.send_request,color_temp_request)
-        
     def turn_on(self,switch_id,mesh_id):
-        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000010000') + ((428 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
-        self.loop.call_soon_threadsafe(self.send_request,power_request)
-
-    def turn_on_support_brightness(self,switch_id,mesh_id):
-        power_request = bytes.fromhex('730000001d') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00b000000000000') + mesh_id + bytes.fromhex('d0000001') + ((428 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000010000') + ((430 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
     def turn_off(self,switch_id,mesh_id):
-        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000000000') + ((427 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
-        self.loop.call_soon_threadsafe(self.send_request,power_request)
-
-    def turn_off_support_brightness(self,switch_id,mesh_id):
-        power_request = bytes.fromhex('730000001d') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00b000000000000') + mesh_id + bytes.fromhex('d0000000') + ((427 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000000000') + ((429 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
     async def update_state(self):
@@ -191,8 +189,9 @@ class CyncHub:
 
 class CyncRoom:
 
-    def __init__(self, room_id, room_info):
+    def __init__(self, room_id, room_info, hub):
 
+        self.hub = hub
         self.room_id = room_id
         self.name = room_info['name']
         self.home_name = room_info['home_name']
@@ -216,6 +215,36 @@ class CyncRoom:
         """Remove previously registered callback."""
         self._update_callback = None
 
+    @property
+    def max_mireds(self) -> int:
+        """Return minimum supported color temperature."""
+        return 500
+
+    @property
+    def min_mireds(self) -> int:
+        """Return maximum supported color temperature."""
+        return 200
+
+    def turn_on(self, attr_rgb, attr_br, attr_ct):
+
+        if attr_rgb is not None and attr_br is not None:
+            if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
+                self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controller, self.mesh_id)
+            else:
+                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controller, self.mesh_id)
+        elif attr_rgb is None and attr_ct is None and attr_br is not None:
+            self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controller, self.mesh_id)
+        elif attr_rgb is not None and attr_br is None:
+            self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controller, self.mesh_id)
+        elif attr_ct is not None:
+            ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
+            self.hub.combo_control(True, 255, ct, [0,0,0], self.controller, self.mesh_id)
+        else:
+            self.hub.turn_on(self.controller,self.mesh_id)
+
+    def turn_off(self):
+        self.hub.turn_off(self.controller, self.mesh_id)
+
     def update_room(self, switchID, state, brightness, color_temp, rgb):
         self.switches[switchID]['state'] = state
         self.switches[switchID]['brightness'] = brightness
@@ -223,7 +252,7 @@ class CyncRoom:
         self.switches[switchID]['rgb'] = rgb
 
         _power_state = True in [sw_info['state'] for sw_info in self.switches.values()]
-        _brightness = round(sum([sw_info['brightness'] for sw_info in self.switches.values()])/len(self.switches))
+        _brightness = round(sum([sw_info['brightness'] for sw_info in self.switches.values() if sw_info.get('BRIGHTNESS',False)])/len([sw_info for sw_info in self.switches.values() if sw_info.get('BRIGHTNESS',False)]))
         if self.support_color_temp:
             color_temp_list = [sw_info['color_temp'] for sw_info in self.switches.values() if sw_info['COLORTEMP']]
             _color_temp = round(sum(color_temp_list)/len(color_temp_list))
@@ -251,8 +280,9 @@ class CyncRoom:
 
 class CyncSwitch:
 
-    def __init__(self, switch_id, switch_info, room):
+    def __init__(self, switch_id, switch_info, room, hub):
         
+        self.hub = hub
         self.switch_id = switch_id
         self.name = switch_info['name']
         self.home_name = switch_info['home_name']
@@ -278,10 +308,41 @@ class CyncSwitch:
         """Remove previously registered callback."""
         self._update_callback = None
 
+    @property
+    def max_mireds(self) -> int:
+        """Return minimum supported color temperature."""
+        return 500
+
+    @property
+    def min_mireds(self) -> int:
+        """Return maximum supported color temperature."""
+        return 200
+
+    def turn_on(self, attr_rgb, attr_br, attr_ct) -> None:
+        """Turn on the light."""
+        if attr_rgb is not None and attr_br is not None:
+            if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
+                self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controller, self.mesh_id)
+            else:
+                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controller, self.mesh_id)
+        elif attr_rgb is None and attr_ct is None and attr_br is not None:
+            self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controller, self.mesh_id)
+        elif attr_rgb is not None and attr_br is None:
+            self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controller, self.mesh_id)
+        elif attr_ct is not None:
+            ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
+            self.hub.combo_control(True, 255, ct, [0,0,0], self.controller, self.mesh_id)
+        else:
+            self.hub.turn_on(self.controller, self.mesh_id)
+
+    def turn_off(self, **kwargs: Any) -> None:
+        """Turn off the light."""
+        self.hub.turn_off(self.controller, self.mesh_id)
+
     def update_switch(self,state,brightness,color_temp,rgb):
         if self.power_state != state or self.brightness != brightness or self.color_temp != color_temp or self.rgb != rgb:
             self.power_state = state
-            self.brightness = brightness if self.support_brightness else 100 if state else 0
+            self.brightness = brightness if self.support_brightness and state else 100 if state else 0
             self.color_temp = color_temp 
             self.rgb = rgb
             self.publish_update()
@@ -346,8 +407,140 @@ class CyncAmbientLightSensor:
         if self._update_callback:
             self._update_callback()
 
-class LostConnection(HomeAssistantError):
+class CyncUserData:
+
+    def __init__(self):
+        self.username = ''
+        self.password = ''
+        self.auth_code = None
+        self.user_credentials = {}
+
+    async def authenticate(self,username,password):
+        """Authenticate with the API and get a token."""
+        self.username = username
+        self.password = password
+        auth_data = {'corp_id': "1007d2ad150c4000", 'email': self.username, 'password': self.password}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(API_AUTH, json=auth_data) as resp:
+                if resp.status == 200:
+                    self.user_credentials = await resp.json()
+                    login_code = bytearray.fromhex('13000000') + (10 + len(self.user_credentials['authorize'])).to_bytes(1,'big') + bytearray.fromhex('03') + self.user_credentials['user_id'].to_bytes(4,'big') + len(self.user_credentials['authorize']).to_bytes(2,'big') + bytearray(self.user_credentials['authorize'],'ascii') + bytearray.fromhex('0000b4')
+                    self.auth_code = [int.from_bytes([byt],'big') for byt in login_code]
+                    return {'authorized':True}
+                elif resp.status == 400:
+                    request_code_data = {'corp_id': "1007d2ad150c4000", 'email': self.username, 'local_lang': "en-us"}
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(API_REQUEST_CODE,json=request_code_data) as resp:
+                            if resp.status == 200:                    
+                                return {'authorized':False,'two_factor_code_required':True}
+                            else:
+                                return {'authorized':False,'two_factor_code_required':False}
+                else:
+                    return {'authorized':False,'two_factor_code_required':False}
+
+    async def auth_two_factor(self, code):
+        """Authenticate with 2 Factor Code."""
+        two_factor_data = {'corp_id': "1007d2ad150c4000", 'email': self.username,'password': self.password, 'two_factor': code, 'resource':"abcdefghijklmnop"}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(API_2FACTOR_AUTH,json=two_factor_data) as resp:
+                if resp.status == 200:
+                    self.user_credentials = await resp.json()
+                    login_code = bytearray.fromhex('13000000') + (10 + len(self.user_credentials['authorize'])).to_bytes(1,'big') + bytearray.fromhex('03') + self.user_credentials['user_id'].to_bytes(4,'big') + len(self.user_credentials['authorize']).to_bytes(2,'big') + bytearray(self.user_credentials['authorize'],'ascii') + bytearray.fromhex('0000b4')
+                    self.auth_code = [int.from_bytes([byt],'big') for byt in login_code]
+                    return {'authorized':True}
+                else:
+                    return {'authorized':False}
+
+    async def get_cync_config(self):
+        home_devices = {}
+        home_controllers = {}
+        deviceID_to_home = {}
+        devices = {}
+        rooms = {}
+        homes = await self._get_homes()
+        for home in homes:
+            home_info = await self._get_home_properties(home['product_id'], home['id'])
+            if 'groupsArray' in home_info and len(home_info['groupsArray']) > 0:
+                home_id = str(home['id'])
+                bulbs_array_length = max([((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256) for device in home_info['bulbsArray']]) + 1
+                home_devices[home_id] = [""]*(bulbs_array_length)
+                home_controllers[home_id] = []
+                for device in home_info['bulbsArray']:
+                    device_type = device['deviceType']
+                    device_id = str(device['deviceID'])
+                    current_index = ((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256)
+                    home_devices[home_id][current_index] = device_id
+                    devices[device_id] = {'name':device['displayName'],
+                        'mesh_id':current_index, 
+                        'ONOFF': device_type in Capabilities['ONOFF'], 
+                        'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], 
+                        "COLORTEMP":device_type in Capabilities["COLORTEMP"], 
+                        "RGB": device_type in Capabilities["RGB"], 
+                        "MOTION": device_type in Capabilities["MOTION"], 
+                        "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], 
+                        "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],
+                        "PLUG" : device_type in Capabilities["PLUG"],
+                        'home_name':home['name'], 
+                        'room':'', 
+                        'room_name':''
+                    }
+                    if str(device_type) in Capabilities['MULTIELEMENT'] and current_index < 256:
+                        devices[device_id]['MULTIELEMENT'] = Capabilities['MULTIELEMENT'][str(device_type)]
+                    if devices[device_id].get('WIFICONTROL',False) and 'switchID' in device and device['switchID'] > 0:
+                        deviceID_to_home[str(device['switchID'])] = home_id
+                        devices[device_id]['switch_controller'] = device['switchID']
+                        home_controllers[home_id].append(device['switchID'])
+                for room in home_info['groupsArray']:
+                    if len(room['deviceIDArray']) > 0 and len(home_controllers[home_id]) > 0:
+                        room_id = home_id + '-' + str(room['groupID'])
+                        room_controller = home_controllers[home_id][0]
+                        available_room_controllers = [(id%1000) + (int(id/1000)*256) for id in room['deviceIDArray'] if 'switch_controller' in devices[home_devices[home_id][(id%1000)+(int(id/1000)*256)]]]
+                        if len(available_room_controllers) > 0:
+                            room_controller = devices[home_devices[home_id][available_room_controllers[0]]]['switch_controller']
+                        for id in room['deviceIDArray']:
+                            id = (id % 1000) + (int(id / 1000)*256)
+                            devices[home_devices[home_id][id]]['room'] = room_id
+                            devices[home_devices[home_id][id]]['room_name'] = room['displayName']
+                            if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]].get('ONOFF',False):
+                                devices[home_devices[home_id][id]]['switch_controller'] = room_controller
+                        rooms[room_id] = {'name':room['displayName'],
+                            'mesh_id': room['groupID'], 
+                            'room_controller':room_controller,
+                            'home_name':home['name'], 
+                            'switches':{
+                                home_devices[home_id][(i%1000)+(int(i/1000)*256)]:{
+                                    'state':False, 
+                                    'brightness':0, 
+                                    'color_temp':0, 
+                                    'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 
+                                    'ONOFF':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False), 
+                                    'BRIGHTNESS':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('BRIGHTNESS',False), 
+                                    'COLORTEMP':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('COLORTEMP',False), 
+                                    'RGB':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('RGB',False)
+                                } 
+                                for i in room['deviceIDArray'] if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False)
+                            }
+                        }
+        return {'rooms':rooms, 'devices':devices, 'home_devices':home_devices, 'home_controllers':home_controllers, 'deviceID_to_home':deviceID_to_home}
+
+    async def _get_homes(self):
+        """Get a list of devices for a particular user."""
+        headers = {'Access-Token': self.user_credentials['access_token']}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(API_DEVICES.format(user=self.user_credentials['user_id']), headers=headers) as resp:
+                response  = await resp.json()
+                return response
+
+    async def _get_home_properties(self, product_id, device_id):
+        """Get properties for a single device."""
+        headers = {'Access-Token': self.user_credentials['access_token']}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(API_DEVICE_INFO.format(product_id=product_id, device_id=device_id), headers=headers) as resp:
+                response = await resp.json()
+                return response
+
+class LostConnection(Exception):
     """Lost connection to Cync Server"""
 
-class ShuttingDown(HomeAssistantError):
+class ShuttingDown(Exception):
     """Cync client shutting down"""

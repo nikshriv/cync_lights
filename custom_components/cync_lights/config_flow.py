@@ -2,20 +2,14 @@
 from __future__ import annotations
 import logging
 import voluptuous as vol
-import aiohttp
 from typing import Any
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.core import callback
-from .const import DOMAIN,Capabilities
-
-API_AUTH = "https://api.gelighting.com/v2/user_auth"
-API_REQUEST_CODE = "https://api.gelighting.com/v2/two_factor/email/verifycode"
-API_2FACTOR_AUTH = "https://api.gelighting.com/v2/user_auth/two_factor"
-API_DEVICES = "https://api.gelighting.com/v2/user/{user}/subscribe/devices"
-API_DEVICE_INFO = "https://api.gelighting.com/v2/product/{product_id}/device/{device_id}/property"
+from .const import DOMAIN
+from .cync_hub import CyncUserData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -279,139 +273,6 @@ class CyncOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         return self.async_show_form(step_id="select_switches", data_schema=switches_data_schema)
-
-
-class CyncUserData:
-
-    def __init__(self):
-        self.username = ''
-        self.password = ''
-        self.auth_code = None
-        self.user_credentials = {}
-
-    async def authenticate(self,username,password):
-        """Authenticate with the API and get a token."""
-        self.username = username
-        self.password = password
-        auth_data = {'corp_id': "1007d2ad150c4000", 'email': self.username, 'password': self.password}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(API_AUTH, json=auth_data) as resp:
-                if resp.status == 200:
-                    self.user_credentials = await resp.json()
-                    login_code = bytearray.fromhex('13000000') + (10 + len(self.user_credentials['authorize'])).to_bytes(1,'big') + bytearray.fromhex('03') + self.user_credentials['user_id'].to_bytes(4,'big') + len(self.user_credentials['authorize']).to_bytes(2,'big') + bytearray(self.user_credentials['authorize'],'ascii') + bytearray.fromhex('0000b4')
-                    self.auth_code = [int.from_bytes([byt],'big') for byt in login_code]
-                    return {'authorized':True}
-                elif resp.status == 400:
-                    request_code_data = {'corp_id': "1007d2ad150c4000", 'email': self.username, 'local_lang': "en-us"}
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(API_REQUEST_CODE,json=request_code_data) as resp:
-                            if resp.status == 200:                    
-                                return {'authorized':False,'two_factor_code_required':True}
-                            else:
-                                return {'authorized':False,'two_factor_code_required':False}
-                else:
-                    return {'authorized':False,'two_factor_code_required':False}
-
-    async def auth_two_factor(self, code):
-        """Authenticate with 2 Factor Code."""
-        two_factor_data = {'corp_id': "1007d2ad150c4000", 'email': self.username,'password': self.password, 'two_factor': code, 'resource':"abcdefghijklmnop"}
-        async with aiohttp.ClientSession() as session:
-            async with session.post(API_2FACTOR_AUTH,json=two_factor_data) as resp:
-                if resp.status == 200:
-                    self.user_credentials = await resp.json()
-                    login_code = bytearray.fromhex('13000000') + (10 + len(self.user_credentials['authorize'])).to_bytes(1,'big') + bytearray.fromhex('03') + self.user_credentials['user_id'].to_bytes(4,'big') + len(self.user_credentials['authorize']).to_bytes(2,'big') + bytearray(self.user_credentials['authorize'],'ascii') + bytearray.fromhex('0000b4')
-                    self.auth_code = [int.from_bytes([byt],'big') for byt in login_code]
-                    return {'authorized':True}
-                else:
-                    return {'authorized':False}
-
-    async def get_cync_config(self):
-        home_devices = {}
-        home_controllers = {}
-        deviceID_to_home = {}
-        devices = {}
-        rooms = {}
-        homes = await self._get_homes()
-        for home in homes:
-            home_info = await self._get_home_properties(home['product_id'], home['id'])
-            if 'groupsArray' in home_info and len(home_info['groupsArray']) > 0:
-                home_id = str(home['id'])
-                bulbs_array_length = max([((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256) for device in home_info['bulbsArray']]) + 1
-                home_devices[home_id] = [""]*(bulbs_array_length)
-                home_controllers[home_id] = []
-                for device in home_info['bulbsArray']:
-                    device_type = device['deviceType']
-                    device_id = str(device['deviceID'])
-                    current_index = ((device['deviceID'] % home['id']) % 1000) + (int((device['deviceID'] % home['id']) / 1000)*256)
-                    home_devices[home_id][current_index] = device_id
-                    devices[device_id] = {'name':device['displayName'],
-                        'mesh_id':current_index, 
-                        'ONOFF': device_type in Capabilities['ONOFF'], 
-                        'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], 
-                        "COLORTEMP":device_type in Capabilities["COLORTEMP"], 
-                        "RGB": device_type in Capabilities["RGB"], 
-                        "MOTION": device_type in Capabilities["MOTION"], 
-                        "AMBIENT_LIGHT": device_type in Capabilities["AMBIENT_LIGHT"], 
-                        "WIFICONTROL": device_type in Capabilities["WIFICONTROL"],
-                        "PLUG" : device_type in Capabilities["PLUG"],
-                        'home_name':home['name'], 
-                        'room':'', 
-                        'room_name':''
-                    }
-                    if str(device_type) in Capabilities['MULTIELEMENT'] and current_index < 256:
-                        devices[device_id]['MULTIELEMENT'] = Capabilities['MULTIELEMENT'][str(device_type)]
-                    if devices[device_id].get('WIFICONTROL',False) and 'switchID' in device and device['switchID'] > 0:
-                        deviceID_to_home[str(device['switchID'])] = home_id
-                        devices[device_id]['switch_controller'] = device['switchID']
-                        home_controllers[home_id].append(device['switchID'])
-                for room in home_info['groupsArray']:
-                    if len(room['deviceIDArray']) > 0 and len(home_controllers[home_id]) > 0:
-                        room_id = home_id + '-' + str(room['groupID'])
-                        room_controller = home_controllers[home_id][0]
-                        available_room_controllers = [(id%1000) + (int(id/1000)*256) for id in room['deviceIDArray'] if 'switch_controller' in devices[home_devices[home_id][(id%1000)+(int(id/1000)*256)]]]
-                        if len(available_room_controllers) > 0:
-                            room_controller = devices[home_devices[home_id][available_room_controllers[0]]]['switch_controller']
-                        for id in room['deviceIDArray']:
-                            id = (id % 1000) + (int(id / 1000)*256)
-                            devices[home_devices[home_id][id]]['room'] = room_id
-                            devices[home_devices[home_id][id]]['room_name'] = room['displayName']
-                            if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]].get('ONOFF',False):
-                                devices[home_devices[home_id][id]]['switch_controller'] = room_controller
-                        rooms[room_id] = {'name':room['displayName'],
-                            'mesh_id': room['groupID'], 
-                            'room_controller':room_controller,
-                            'home_name':home['name'], 
-                            'switches':{
-                                home_devices[home_id][(i%1000)+(int(i/1000)*256)]:{
-                                    'state':False, 
-                                    'brightness':0, 
-                                    'color_temp':0, 
-                                    'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 
-                                    'ONOFF':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False), 
-                                    'BRIGHTNESS':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('BRIGHTNESS',False), 
-                                    'COLORTEMP':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('COLORTEMP',False), 
-                                    'RGB':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('RGB',False)
-                                } 
-                                for i in room['deviceIDArray'] if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False)
-                            }
-                        }
-        return {'rooms':rooms, 'devices':devices, 'home_devices':home_devices, 'home_controllers':home_controllers, 'deviceID_to_home':deviceID_to_home}
-
-    async def _get_homes(self):
-        """Get a list of devices for a particular user."""
-        headers = {'Access-Token': self.user_credentials['access_token']}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(API_DEVICES.format(user=self.user_credentials['user_id']), headers=headers) as resp:
-                response  = await resp.json()
-                return response
-
-    async def _get_home_properties(self, product_id, device_id):
-        """Get properties for a single device."""
-        headers = {'Access-Token': self.user_credentials['access_token']}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(API_DEVICE_INFO.format(product_id=product_id, device_id=device_id), headers=headers) as resp:
-                response = await resp.json()
-                return response
 
 class TwoFactorCodeRequired(HomeAssistantError):
     """Error to indicate we cannot connect."""

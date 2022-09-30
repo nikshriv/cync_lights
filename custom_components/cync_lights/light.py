@@ -1,6 +1,6 @@
 """Platform for light integration."""
 from __future__ import annotations
-from typing import Any, Tuple
+from typing import Any
 from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, ATTR_RGB_COLOR, ColorMode, LightEntity)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -8,7 +8,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
 import logging
-import math
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,11 +21,11 @@ async def async_setup_entry(
     new_devices = []
     for room in hub.cync_rooms:
         if not hub.cync_rooms[room]._update_callback and room in config_entry.options["rooms"]:
-            new_devices.append(CyncRoomEntity(hub.cync_rooms[room],hub))
+            new_devices.append(CyncRoomEntity(hub.cync_rooms[room]))
 
     for switch_id in hub.cync_switches:
         if not hub.cync_switches[switch_id]._update_callback and not hub.cync_switches[switch_id].plug and switch_id in config_entry.options["switches"]:
-            new_devices.append(CyncSwitchEntity(hub.cync_switches[switch_id],hub))
+            new_devices.append(CyncSwitchEntity(hub.cync_switches[switch_id]))
 
     if new_devices:
         async_add_entities(new_devices)
@@ -38,11 +37,9 @@ class CyncRoomEntity(LightEntity):
 
     should_poll = False
 
-    def __init__(self, room, hub) -> None:
+    def __init__(self, room) -> None:
         """Initialize the light."""
         self.room = room
-        self.cync_hub = hub
-        self.mixed_mode = False in [self.cync_hub.cync_switches[switch_id].support_brightness for switch_id in self.room.switches.keys()] and True in [self.cync_hub.cync_switches[switch_id].support_brightness for switch_id in self.room.switches.keys()]
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
@@ -86,12 +83,12 @@ class CyncRoomEntity(LightEntity):
     @property
     def max_mireds(self) -> int:
         """Return minimum supported color temperature."""
-        return 500
+        return self.room.max_mireds
 
     @property
     def min_mireds(self) -> int:
         """Return maximum supported color temperature."""
-        return 200
+        return self.room.min_mireds
 
     @property
     def color_temp(self) -> int | None:
@@ -134,65 +131,22 @@ class CyncRoomEntity(LightEntity):
         else:
             return ColorMode.ONOFF 
 
-    def _turn_on_support_brightness(self, attr_rgb, attr_br, attr_ct, dev):
-        if attr_rgb is not None and attr_br is not None:
-            if math.isclose(attr_br, max([dev.rgb['r'],dev.rgb['g'],dev.rgb['b']])*dev.brightness/100, abs_tol = 2):
-                self.cync_hub.combo_control(dev.brightness, 254, attr_rgb, dev.controller, dev.mesh_id)
-            else:
-                self.cync_hub.combo_control(round(attr_br*100/255), 255, [255,255,255], dev.controller, dev.mesh_id)
-        elif attr_rgb is None and attr_ct is None and attr_br is not None:
-            if self.color_mode == ColorMode.RGB or self.color_mode == ColorMode.COLOR_TEMP:
-                self.cync_hub.combo_control(round(attr_br*100/255), 255, [255,255,255], dev.controller, dev.mesh_id)
-            else:
-                self.cync_hub.set_brightness(round(attr_br*100/255), dev.controller, dev.mesh_id)
-        elif attr_rgb is not None and attr_br is None:
-            self.cync_hub.combo_control(dev.brightness, 254, attr_rgb, dev.controller, dev.mesh_id)
-        elif attr_ct is not None:
-            ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
-            self.cync_hub.set_color_temp(ct, dev.controller, dev.mesh_id)
-        else:
-            self.cync_hub.turn_on_support_brightness(dev.controller, dev.mesh_id)
-
     def turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
-        attr_rgb = kwargs.get(ATTR_RGB_COLOR)
-        attr_br = kwargs.get(ATTR_BRIGHTNESS)
-        attr_ct = kwargs.get(ATTR_COLOR_TEMP)
-        if not self.mixed_mode and self.room.support_brightness:
-            self._turn_on_support_brightness(attr_rgb, attr_br, attr_ct, self.room)
-        elif self.mixed_mode and self.room.support_brightness:
-            for device_id in self.room.switches.keys():
-                if (dev := self.cync_hub.cync_switches.get(device_id)) is not None:
-                    if dev.support_brightness:
-                        self._turn_on_support_brightness(attr_rgb, attr_br, attr_ct, dev)
-                    else:
-                        self.cync_hub.turn_on(dev.controller, dev.mesh_id)
-        elif not self.mixed_mode and not self.room.support_brightness:
-            self.cync_hub.turn_on(self.room.controller, self.room.mesh_id)
+        self.room.turn_on(kwargs.get(ATTR_RGB_COLOR),kwargs.get(ATTR_BRIGHTNESS),kwargs.get(ATTR_COLOR_TEMP))
 
     def turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        if not self.mixed_mode and self.room.support_brightness:
-            self.cync_hub.turn_off_support_brightness(self.room.controller, self.room.mesh_id)
-        elif self.mixed_mode and self.room.support_brightness:
-            for device_id in self.room.switches.keys():
-                if (dev := self.cync_hub.cync_switches.get(device_id)) is not None:
-                    if dev.support_brightness:
-                        self.cync_hub.turn_off_support_brightness(dev.controller, dev.mesh_id)
-                    else:
-                        self.cync_hub.turn_off(dev.controller, dev.mesh_id)                
-        elif not self.mixed_mode and not self.room.support_brightness:
-            self.cync_hub.turn_off(self.room.controller, self.room.mesh_id)
+        self.room.turn_off()
 
 class CyncSwitchEntity(LightEntity):
     """Representation of a Cync Switch Light Entity."""
 
     should_poll = False
 
-    def __init__(self, cync_switch, hub) -> None:
+    def __init__(self, cync_switch) -> None:
         """Initialize the light."""
         self.cync_switch = cync_switch
-        self.cync_hub = hub
 
     async def async_added_to_hass(self) -> None:
         """Run when this Entity has been added to HA."""
@@ -234,12 +188,12 @@ class CyncSwitchEntity(LightEntity):
     @property
     def max_mireds(self) -> int:
         """Return minimum supported color temperature."""
-        return 500
+        return self.cync_switch.max_mireds
 
     @property
     def min_mireds(self) -> int:
         """Return maximum supported color temperature."""
-        return 200
+        return self.cync_switch.min_mireds
 
     @property
     def color_temp(self) -> int | None:
@@ -281,39 +235,11 @@ class CyncSwitchEntity(LightEntity):
             return ColorMode.BRIGHTNESS
         else:
             return ColorMode.ONOFF 
-
-    def _turn_on_support_brightness(self, attr_rgb, attr_br, attr_ct, dev):
-        if attr_rgb is not None and attr_br is not None:
-            if math.isclose(attr_br, max([dev.rgb['r'],dev.rgb['g'],dev.rgb['b']])*dev.brightness/100, abs_tol = 2):
-                self.cync_hub.combo_control(dev.brightness, 254, rgb, dev.controller, dev.mesh_id)
-            else:
-                self.cync_hub.combo_control(round(attr_br*100/255), 255, [255,255,255], dev.controller, dev.mesh_id)
-        elif attr_rgb is None and attr_ct is None and attr_br is not None:
-            if self.color_mode == ColorMode.RGB or self.color_mode == ColorMode.COLOR_TEMP:
-                self.cync_hub.combo_control(round(attr_br*100/255), 255, [255,255,255], dev.controller, dev.mesh_id)
-            else:
-                self.cync_hub.set_brightness(round(attr_br*100/255), dev.controller, dev.mesh_id)
-        elif attr_rgb is not None and attr_br is None:
-            self.cync_hub.combo_control(dev.brightness, 254, attr_rgb, dev.controller, dev.mesh_id)
-        elif attr_ct is not None:
-            ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
-            self.cync_hub.set_color_temp(ct, dev.controller, dev.mesh_id)
-        else:
-            self.cync_hub.turn_on_support_brightness(dev.controller, dev.mesh_id)
-            
+           
     def turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
-        attr_rgb = kwargs.get(ATTR_RGB_COLOR)
-        attr_br = kwargs.get(ATTR_BRIGHTNESS)
-        attr_ct = kwargs.get(ATTR_COLOR_TEMP)
-        if self.cync_switch.support_brightness:
-            self._turn_on_support_brightness(attr_rgb, attr_br, attr_ct, self.cync_switch)
-        else:
-            self.cync_hub.turn_on(self.cync_switch.controller, self.cync_switch.mesh_id)
+        self.cync_switch.turn_on(kwargs.get(ATTR_RGB_COLOR),kwargs.get(ATTR_BRIGHTNESS),kwargs.get(ATTR_COLOR_TEMP))
 
     def turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        if self.cync_switch.support_brightness:
-            self.cync_hub.turn_off_support_brightness(self.cync_switch.controller, self.cync_switch.mesh_id)
-        else:
-            self.cync_hub.turn_off(self.cync_switch.controller, self.cync_switch.mesh_id)
+        self.cync_switch.turn_off()
