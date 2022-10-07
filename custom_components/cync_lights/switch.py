@@ -26,8 +26,6 @@ async def async_setup_entry(
     if new_devices:
         async_add_entities(new_devices)
 
-    await hub.update_state()
-
 class CyncPlugEntity(SwitchEntity):
     """Representation of a Cync Switch Light Entity."""
 
@@ -57,7 +55,7 @@ class CyncPlugEntity(SwitchEntity):
     @property
     def unique_id(self) -> str:
         """Return Unique ID string."""
-        return 'cync_switch_' + self.cync_switch.switch_id 
+        return 'cync_switch_' + self.cync_switch.device_id 
 
     @property
     def name(self) -> str:
@@ -74,10 +72,10 @@ class CyncPlugEntity(SwitchEntity):
         """Return true if light is on."""
         return self.cync_switch.power_state
             
-    def turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the outlet."""
-        self.cync_switch.turn_on(None, None, None)
+        await self.cync_switch.turn_on(None, None, None)
 
-    def turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the outlet."""
-        self.cync_switch.turn_off()
+        await self.cync_switch.turn_off()

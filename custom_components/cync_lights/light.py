@@ -30,7 +30,7 @@ async def async_setup_entry(
     if new_devices:
         async_add_entities(new_devices)
 
-    await hub.update_state()
+
 
 class CyncRoomEntity(LightEntity):
     """Representation of a Cync Room Light Entity."""
@@ -131,13 +131,13 @@ class CyncRoomEntity(LightEntity):
         else:
             return ColorMode.ONOFF 
 
-    def turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
-        self.room.turn_on(kwargs.get(ATTR_RGB_COLOR),kwargs.get(ATTR_BRIGHTNESS),kwargs.get(ATTR_COLOR_TEMP))
+        await self.room.turn_on(kwargs.get(ATTR_RGB_COLOR),kwargs.get(ATTR_BRIGHTNESS),kwargs.get(ATTR_COLOR_TEMP))
 
-    def turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        self.room.turn_off()
+        await self.room.turn_off()
 
 class CyncSwitchEntity(LightEntity):
     """Representation of a Cync Switch Light Entity."""
@@ -168,7 +168,7 @@ class CyncSwitchEntity(LightEntity):
     @property
     def unique_id(self) -> str:
         """Return Unique ID string."""
-        return 'cync_switch_' + self.cync_switch.switch_id 
+        return 'cync_switch_' + self.cync_switch.device_id 
 
     @property
     def name(self) -> str:
@@ -235,11 +235,11 @@ class CyncSwitchEntity(LightEntity):
             return ColorMode.BRIGHTNESS
         else:
             return ColorMode.ONOFF 
-           
-    def turn_on(self, **kwargs: Any) -> None:
-        """Turn on the light."""
-        self.cync_switch.turn_on(kwargs.get(ATTR_RGB_COLOR),kwargs.get(ATTR_BRIGHTNESS),kwargs.get(ATTR_COLOR_TEMP))
 
-    def turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the light."""
+        await self.cync_switch.turn_on(kwargs.get(ATTR_RGB_COLOR),kwargs.get(ATTR_BRIGHTNESS),kwargs.get(ATTR_COLOR_TEMP))
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        self.cync_switch.turn_off()
+        await self.cync_switch.turn_off()
