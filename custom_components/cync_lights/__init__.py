@@ -13,7 +13,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
     remove_options_update_listener = entry.add_update_listener(options_update_listener)
-    hub = CyncHub(entry.data, remove_options_update_listener)
+    hub = CyncHub(entry.data, entry.options, remove_options_update_listener)
     hass.data[DOMAIN][entry.entry_id] = hub
     hub.start_tcp_client()
     hass.config_entries.async_setup_platforms(entry, PLATFORMS)

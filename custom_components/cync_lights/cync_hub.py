@@ -28,7 +28,7 @@ Capabilities = {
 
 class CyncHub:
 
-    def __init__(self, user_data, remove_options_update_listener):
+    def __init__(self, user_data, options, remove_options_update_listener):
 
         self.thread = None
         self.loop = None
@@ -46,7 +46,11 @@ class CyncHub:
         self.cync_switches = {device_id:CyncSwitch(device_id,switch_info,self.cync_rooms.get(switch_info['room'], None),self) for device_id,switch_info in user_data['cync_config']['devices'].items() if switch_info.get("ONOFF",False)}
         self.cync_motion_sensors = {device_id:CyncMotionSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info.get("MOTION",False)}
         self.cync_ambient_light_sensors = {device_id:CyncAmbientLightSensor(device_id,device_info,self.cync_rooms.get(device_info['room'], None)) for device_id,device_info in user_data['cync_config']['devices'].items() if device_info.get("AMBIENT_LIGHT",False)}
-        self.switchID_to_deviceIDs = {device_info.switch_id:[dev_id for dev_id, dev_info in self.cync_switches.items() if dev_info.switch_id == device_info.switch_id] for device_id, device_info in self.cync_switches.items()}
+        self.switchID_to_deviceIDs = {device_info.switch_id:[dev_id for dev_id, dev_info in self.cync_switches.items() if dev_info.switch_id == device_info.switch_id] for device_id, device_info in self.cync_switches.items() if int(device_info.switch_id) > 0}
+        self.connected_devices_updated = False
+        self.options = options
+        self._seq_num = 0
+        self.pending_commands = {}
 
     def start_tcp_client(self):
         self.thread = threading.Thread(target=self._start_tcp_client,daemon=True)
@@ -74,15 +78,14 @@ class CyncHub:
             else:
                 read_tcp_messages = asyncio.create_task(self._read_tcp_messages(), name = "Read TCP Messages")
                 maintain_connection = asyncio.create_task(self._maintain_connection(), name = "Maintain Connection")
-                update_state_and_connected_devices = asyncio.create_task(self._update_state_and_connected_devices(), name = "Update State and Connected Devices")
-                read_write_tasks = [read_tcp_messages, maintain_connection, update_state_and_connected_devices]
+                update_state = asyncio.create_task(self._update_state(), name = "Update State")
+                update_connected_devices = asyncio.create_task(self._update_connected_devices(), name = "Update Connected Devices")
+                read_write_tasks = [read_tcp_messages, maintain_connection, update_state, update_connected_devices]
                 try:
                     done, pending = await asyncio.wait(read_write_tasks,return_when=asyncio.FIRST_EXCEPTION)
                     for task in done:
                         name = task.get_name()
                         exception = task.exception()
-                        if isinstance(exception, Exception):
-                            _LOGGER.error(f"{name} threw {exception}")
                         try:
                             result = task.result()
                         except Exception as e:
@@ -93,7 +96,7 @@ class CyncHub:
                         _LOGGER.error("Connection to Cync server reset, restarting in 15 seconds")
                         await asyncio.sleep(15)
                     else:
-                        _LOGGER.error("Cync client shutting down")
+                        _LOGGER.debug("Cync client shutting down")
                 except Exception as e:
                     _LOGGER.error(str(type(e).__name__) + ": " + str(e))
 
@@ -105,23 +108,26 @@ class CyncHub:
         while not self.shutting_down:
             data = await self.reader.read(1000)
             if len(data) == 0:
+                self.logged_in = False
                 raise LostConnection
-            while len(data) >= 30:
+            while len(data) >= 12:
                 packet_type = int(data[0])
                 packet_length = struct.unpack(">I", data[1:5])[0]
                 packet = data[5:packet_length+5]
                 try:
                     if (packet_type == 115 or packet_type == 131) and packet_length >= 33 and int(packet[13]) == 219:
                         #parse state and brightness change packet
-                        home_id = self.switchID_to_homeID[str(struct.unpack(">I", packet[0:4])[0])]
+                        switch_id = str(struct.unpack(">I", packet[0:4])[0])
+                        home_id = self.switchID_to_homeID[switch_id]
                         deviceID = self.home_devices[home_id][int(packet[21])]
                         state = int(packet[27]) > 0
-                        brightness = int(packet[28])
+                        brightness = int(packet[28]) if state else 0
                         if deviceID in self.cync_switches:
                             self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
                     elif packet_type == 67 and packet_length >= 26 and int(packet[4]) == 1 and int(packet[5]) == 1 and int(packet[6]) == 6:
                         #parse state packet
-                        home_id = self.switchID_to_homeID[str(struct.unpack(">I", packet[0:4])[0])]
+                        switch_id = str(struct.unpack(">I", packet[0:4])[0])
+                        home_id = self.switchID_to_homeID[switch_id]
                         packet = packet[7:]
                         while len(packet) >= 19:
                             if int(packet[3]) < len(self.home_devices[home_id]):
@@ -135,14 +141,15 @@ class CyncHub:
                                             self.cync_switches[device_id].update_switch(state, brightness, self.cync_switches[device_id].color_temp, self.cync_switches[device_id].rgb)
                                     else:
                                         state = int(packet[4]) > 0
-                                        brightness = int(packet[5])
+                                        brightness = int(packet[5]) if state else 0
                                         color_temp = int(packet[6])
                                         rgb = {'r':int(packet[7]),'g':int(packet[8]),'b':int(packet[9]),'active':int(packet[6])==254}
                                         self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
                             packet = packet[19:]
                     elif (packet_type == 115 or packet_type == 131) and packet_length >= 25 and int(packet[13]) == 84:
                         #parse motion and ambient light sensor packet
-                        home_id = self.switchID_to_homeID[str(struct.unpack(">I", packet[0:4])[0])]
+                        switch_id = str(struct.unpack(">I", packet[0:4])[0])
+                        home_id = self.switchID_to_homeID[switch_id]
                         deviceID = self.home_devices[home_id][int(packet[16])]
                         motion = int(packet[22]) > 0
                         ambient_light = int(packet[24]) > 0
@@ -154,8 +161,7 @@ class CyncHub:
                         #parse initial state packet
                         switch_id = str(struct.unpack(">I", packet[0:4])[0])
                         home_id = self.switchID_to_homeID[switch_id]
-                        for dev in self.switchID_to_deviceIDs[switch_id]: #update list of WiFi connected devices
-                            self.connected_devices[home_id].append(dev)
+                        self._add_connected_devices(switch_id, home_id)
                         packet = packet[22:]
                         while len(packet) > 24:
                             deviceID = self.home_devices[home_id][int(packet[0])]
@@ -168,13 +174,22 @@ class CyncHub:
                                         self.cync_switches[device_id].update_switch(state, brightness, self.cync_switches[device_id].color_temp, self.cync_switches[device_id].rgb)
                                 else:
                                     state = int(packet[8]) > 0
-                                    brightness = int(packet[12])
+                                    brightness = int(packet[12]) if state else 0
                                     color_temp = int(packet[16])
                                     rgb = {'r':int(packet[20]),'g':int(packet[21]),'b':int(packet[22]),'active':int(packet[16])==254}
                                     self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
                             packet = packet[24:]
+                    elif packet_type == 171:
+                        switch_id = str(struct.unpack(">I", packet[0:4])[0])
+                        home_id = self.switchID_to_homeID[switch_id]
+                        self._add_connected_devices(switch_id, home_id)
+                    elif packet_type == 123:
+                        seq = str(struct.unpack(">H", packet[4:6])[0])
+                        command_received = self.pending_commands.get(seq,None)
+                        if command_received is not None:
+                            command_received(seq)
                 except Exception as e:
-                    _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+                    _LOGGER.warning(str(type(e).__name__) + ": " + str(e))
                 data = data[packet_length+5:]
         raise ShuttingDown
 
@@ -185,50 +200,84 @@ class CyncHub:
             await self.writer.drain()
         raise ShuttingDown
 
-    async def _update_state_and_connected_devices(self):
+    def _add_connected_devices(self,switch_id, home_id):
+        for dev in self.switchID_to_deviceIDs[switch_id]:
+            #update list of WiFi connected devices
+            if dev not in self.connected_devices[home_id]:
+                self.connected_devices[home_id].append(dev)
+                if self.connected_devices_updated:
+                    for dev in self.cync_switches.values():
+                        dev.update_controllers()
+                    for room in self.cync_rooms.values():
+                        room.update_controllers() 
+
+    async def _update_connected_devices(self):
         while not self.shutting_down:
+            self.connected_devices_updated = False
             for devices in self.connected_devices.values():
-                devices = []
-            if self.logged_in:
-                await asyncio.sleep(1)
-            else:
-                while not self.logged_in:
-                    await asyncio.sleep(1)
-            for home_controllers in self.home_controllers.values():
-                for controller in home_controllers:
-                    state_request = bytes.fromhex('7300000018') + int(controller).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f85206000000ffff0000567e')
-                    self.loop.call_soon_threadsafe(self.send_request,state_request)
-            await asyncio.sleep(5)
+                devices.clear()
+            while not self.logged_in:
+                await asyncio.sleep(2)
+            attempts = 0
+            while True in [len(devices) < len(self.home_controllers[home_id]) * 0.5 for home_id,devices in self.connected_devices.items()] and attempts < 10:
+                for home_id, home_controllers in self.home_controllers.items():
+                    for controller in home_controllers:
+                        ping = bytes.fromhex('a300000007') + int(controller).to_bytes(4,'big') + bytes.fromhex('000000')
+                        self.loop.call_soon_threadsafe(self.send_request, ping)
+                        await asyncio.sleep(0.15)
+                await asyncio.sleep(2)
+                attempts += 1            
             for dev in self.cync_switches.values():
                 dev.update_controllers()
             for room in self.cync_rooms.values():
                 room.update_controllers()
+            self.connected_devices_updated = True
             await asyncio.sleep(3600)
         raise ShuttingDown
 
+    async def _update_state(self):
+        while not self.connected_devices_updated:
+            await asyncio.sleep(2)
+        for connected_devices in self.connected_devices.values():
+            if len(connected_devices) > 0:
+                controller = self.cync_switches[connected_devices[0]].switch_id
+                state_request = bytes.fromhex('7300000018') + int(controller).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f85206000000ffff0000567e')
+                self.loop.call_soon_threadsafe(self.send_request,state_request)
+        while False in [self.cync_switches[dev_id]._update_callback is not None for dev_id in self.options["switches"]] and False in [self.cync_rooms[dev_id]._update_callback is not None for dev_id in self.options["rooms"]]:
+            await asyncio.sleep(2)
+        for dev in self.cync_switches.values():
+            dev.publish_update()
+        for room in self.cync_rooms.values():
+            dev.publish_update()
+            
     def send_request(self,request):
-
         async def send():
             self.writer.write(request)
             await self.writer.drain()
-
         self.loop.create_task(send())
         
-    def combo_control(self,state,brightness,color_tone,rgb,switch_id,mesh_id):
-        combo_request = bytes.fromhex('7300000022') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8f010000000000000') + mesh_id + bytes.fromhex('f00000') + (1 if state else 0).to_bytes(1,'big')  + brightness.to_bytes(1,'big') + color_tone.to_bytes(1,'big') + rgb[0].to_bytes(1,'big') + rgb[1].to_bytes(1,'big') + rgb[2].to_bytes(1,'big') + ((496 + int(mesh_id[0]) + int(mesh_id[1]) + (1 if state else 0) + brightness + color_tone + sum(rgb))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+    def combo_control(self,state,brightness,color_tone,rgb,switch_id,mesh_id,seq):
+        combo_request = bytes.fromhex('7300000022') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8f010000000000000') + mesh_id + bytes.fromhex('f00000') + (1 if state else 0).to_bytes(1,'big')  + brightness.to_bytes(1,'big') + color_tone.to_bytes(1,'big') + rgb[0].to_bytes(1,'big') + rgb[1].to_bytes(1,'big') + rgb[2].to_bytes(1,'big') + ((496 + int(mesh_id[0]) + int(mesh_id[1]) + (1 if state else 0) + brightness + color_tone + sum(rgb))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,combo_request)
 
-    def turn_on(self,switch_id,mesh_id):
-        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000010000') + ((430 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+    def turn_on(self,switch_id,mesh_id,seq):
+        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000010000') + ((430 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
-    def turn_off(self,switch_id,mesh_id):
-        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000000000') + ((429 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
+    def turn_off(self,switch_id,mesh_id,seq):
+        power_request = bytes.fromhex('730000001f') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8d00d000000000000') + mesh_id + bytes.fromhex('d00000000000') + ((429 + int(mesh_id[0]) + int(mesh_id[1]))%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
-    def set_color_temp(self,color_temp,switch_id,mesh_id):
-        color_temp_request = bytes.fromhex('730000001e') + int(switch_id).to_bytes(4,'big') + bytes.fromhex('0000007e00000000f8e20c000000000000') + mesh_id + bytes.fromhex('e2000005') + color_temp.to_bytes(1,'big') + ((469 + int(mesh_id[0]) + int(mesh_id[1]) + color_temp)%256).to_bytes(1,'big') + bytes.fromhex('7e')
+    def set_color_temp(self,color_temp,switch_id,mesh_id,seq):
+        color_temp_request = bytes.fromhex('730000001e') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8e20c000000000000') + mesh_id + bytes.fromhex('e2000005') + color_temp.to_bytes(1,'big') + ((469 + int(mesh_id[0]) + int(mesh_id[1]) + color_temp)%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,color_temp_request)
+
+    def get_seq_num(self):
+        if self._seq_num == 65535:
+            self._seq_num = 1
+        else:
+            self._seq_num += 1
+        return self._seq_num
 
 class CyncRoom:
 
@@ -247,11 +296,12 @@ class CyncRoom:
         self.home_id = None
         self.controllers = []
         self.controller = room_info.get('room_controller',0)
-        self.update_received = False
         self._update_callback = None
         self.support_brightness = True in [sw_info.get('BRIGHTNESS',False) for sw_info in self.switches.values()]
         self.support_color_temp = True in [sw_info.get('COLORTEMP',False) for sw_info in self.switches.values()]
         self.support_rgb = True in [sw_info.get('RGB',False) for sw_info in self.switches.values()]
+        self._command_timout = 0.5
+        self._command_retry_time = 5
 
     def register(self, update_callback) -> None:
         """Register callback, called when switch changes state."""
@@ -273,44 +323,59 @@ class CyncRoom:
 
     async def turn_on(self, attr_rgb, attr_br, attr_ct) -> None:
         """Turn on the light."""
-        self.update_received = False
         attempts = 0
-        while not self.update_received and attempts < len(self.controllers):
-            for i in range(attempts,attempts + 2 if len(self.controllers)>=attempts + 2 else attempts + 1):
-                if attr_rgb is not None and attr_br is not None:
-                    if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
-                        self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[i], self.mesh_id)
-                    else:
-                        self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[i], self.mesh_id)
-                elif attr_rgb is None and attr_ct is None and attr_br is not None:
-                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[i], self.mesh_id)
-                elif attr_rgb is not None and attr_br is None:
-                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[i], self.mesh_id)
-                elif attr_ct is not None:
-                    ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
-                    self.hub.set_color_temp(ct, self.controllers[i], self.mesh_id)
+        update_received = False
+        while not update_received and attempts < int(self._command_retry_time/self._command_timout):
+            seq = str(self.hub.get_seq_num())
+            if attr_rgb is not None and attr_br is not None:
+                if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
+                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
                 else:
-                    self.hub.turn_on(self.controllers[i], self.mesh_id)
-            await asyncio.sleep(0.5)
-            attempts += 2
+                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            elif attr_rgb is None and attr_ct is None and attr_br is not None:
+                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            elif attr_rgb is not None and attr_br is None:
+                self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            elif attr_ct is not None:
+                ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
+                self.hub.set_color_temp(ct, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            else:
+                self.hub.turn_on(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            self.hub.pending_commands[seq] = self.command_received
+            await asyncio.sleep(self._command_timout)
+            if self.hub.pending_commands.get(seq, None) is not None:
+                self.hub.pending_commands.pop(seq)
+                attempts += 1
+            else:
+                update_received = True
 
     async def turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        self.update_received = False
         attempts = 0
-        while not self.update_received and attempts < len(self.controllers):
-            for i in range(attempts, attempts + 2 if len(self.controllers) >= attempts + 2 else attempts + 1):
-                self.hub.turn_off(self.controllers[i], self.mesh_id)
-            await asyncio.sleep(0.5)
-            attempts += 2
+        update_received = False
+        while not update_received and attempts < int(self._command_retry_time/self._command_timout):
+            seq = str(self.hub.get_seq_num())
+            self.hub.turn_off(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            self.hub.pending_commands[seq] = self.command_received
+            await asyncio.sleep(self._command_timout)
+            if self.hub.pending_commands.get(seq, None) is not None:
+                self.hub.pending_commands.pop(seq)
+                attempts += 1
+            else:
+                update_received = True
+
+    def command_received(self, seq):
+        """Remove command from hub.pending_commands when a reply is received from Cync server"""
+        if self.hub.pending_commands.get(seq) is not None:
+            self.hub.pending_commands.pop(seq)
 
     def update_room(self, deviceID, state, brightness, color_temp, rgb):
+        """Update the current state of the room"""
         self.switches[deviceID]['state'] = state
         self.switches[deviceID]['brightness'] = brightness
         self.switches[deviceID]['color_temp'] = color_temp
         self.switches[deviceID]['rgb'] = rgb
 
-        self.update_received = True
         _power_state = True in [sw_info['state'] for sw_info in self.switches.values()]
         _brightness = round(sum([sw_info['brightness'] for sw_info in self.switches.values() if sw_info.get('BRIGHTNESS',False)])/len([sw_info for sw_info in self.switches.values() if sw_info.get('BRIGHTNESS',False)]))
         if self.support_color_temp:
@@ -335,6 +400,7 @@ class CyncRoom:
             self.publish_update()
 
     def update_controllers(self):
+        """Update the list of responsive, Wi-Fi connected controller devices"""
         connected_devices = self.hub.connected_devices[self.home_id]
         controllers = []
         if len(connected_devices) > 0:
@@ -368,13 +434,14 @@ class CyncSwitch:
         self.rgb = {'r':0, 'g':0, 'b':0, 'active':False}
         self.controller = switch_info.get('switch_controller',0)
         self.controllers = []
-        self.update_received = False
         self._update_callback = None
         self.support_brightness = switch_info.get('BRIGHTNESS',False)
         self.support_color_temp = switch_info.get('COLORTEMP',False)
         self.support_rgb = switch_info.get('RGB',False)
         self.plug = switch_info.get('PLUG',False)
         self.elements = switch_info.get('MULTIELEMENT',1)
+        self._command_timout = 0.5
+        self._command_retry_time = 5
         if self.room:
             self.room.home_id = self.home_id
 
@@ -398,38 +465,54 @@ class CyncSwitch:
 
     async def turn_on(self, attr_rgb, attr_br, attr_ct) -> None:
         """Turn on the light."""
-        self.update_received = False
         attempts = 0
-        while not self.update_received and attempts < len(self.controllers):
-            for i in range(attempts,attempts + 2 if len(self.controllers)>=attempts + 2 else attempts + 1):
-                if attr_rgb is not None and attr_br is not None:
-                    if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
-                        self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[i], self.mesh_id)
-                    else:
-                        self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[i], self.mesh_id)
-                elif attr_rgb is None and attr_ct is None and attr_br is not None:
-                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[i], self.mesh_id)
-                elif attr_rgb is not None and attr_br is None:
-                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[i], self.mesh_id)
-                elif attr_ct is not None:
-                    ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
-                    self.hub.set_color_temp(ct, self.controllers[i], self.mesh_id)
+        update_received = False
+        while not update_received and attempts < int(self._command_retry_time/self._command_timout):
+            seq = str(self.hub.get_seq_num())
+            if attr_rgb is not None and attr_br is not None:
+                if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
+                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
                 else:
-                    self.hub.turn_on(self.controllers[i], self.mesh_id)
-            await asyncio.sleep(0.5)
-            attempts += 2
+                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            elif attr_rgb is None and attr_ct is None and attr_br is not None:
+                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            elif attr_rgb is not None and attr_br is None:
+                self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            elif attr_ct is not None:
+                ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
+                self.hub.set_color_temp(ct, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            else:
+                self.hub.turn_on(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            self.hub.pending_commands[seq] = self.command_received
+            await asyncio.sleep(self._command_timout)
+            if self.hub.pending_commands.get(seq, None) is not None:
+                self.hub.pending_commands.pop(seq)
+                attempts += 1
+            else:
+                update_received = True
 
     async def turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        self.update_received = False
         attempts = 0
-        while not self.update_received and attempts < len(self.controllers):
-            for i in range(attempts, attempts + 2 if len(self.controllers) >= attempts + 2 else attempts + 1):
-                self.hub.turn_off(self.controllers[i], self.mesh_id)
-            await asyncio.sleep(0.5)
-            attempts += 2
+        update_received = False
+        while not update_received and attempts < int(self._command_retry_time/self._command_timout):
+            seq = str(self.hub.get_seq_num())
+            self.hub.turn_off(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            self.hub.pending_commands[seq] = self.command_received
+            await asyncio.sleep(self._command_timout)
+            if self.hub.pending_commands.get(seq, None) is not None:
+                self.hub.pending_commands.pop(seq)
+                attempts += 1
+            else:
+                update_received = True
+
+    def command_received(self, seq):
+        """Remove command from hub.pending_commands when a reply is received from Cync server"""
+        if self.hub.pending_commands.get(seq) is not None:
+            self.hub.pending_commands.pop(seq)
 
     def update_switch(self,state,brightness,color_temp,rgb):
+        """Update the state of the switch as updates are received from the Cync server"""
         self.update_received = True
         if self.power_state != state or self.brightness != brightness or self.color_temp != color_temp or self.rgb != rgb:
             self.power_state = state
@@ -441,11 +524,14 @@ class CyncSwitch:
                 self.room.update_room(self.device_id,self.power_state,self.brightness,self.color_temp,self.rgb)
 
     def update_controllers(self):
+        """Update the list of responsive, Wi-Fi connected controller devices"""
         connected_devices = self.hub.connected_devices[self.home_id]
         controllers = []
         if len(connected_devices) > 0:
             if int(self.switch_id) > 0:
-                controllers.append(self.switch_id)
+                if self.device_id in connected_devices: 
+                    #if this device is connected, make this the first available controller
+                    controllers.append(self.switch_id)
             if self.room:
                 controllers = controllers + [self.hub.cync_switches[device_id].switch_id for device_id in self.room.switches.keys() if device_id in connected_devices and device_id != self.device_id]
             others_available = [self.hub.cync_switches[device_id].switch_id for device_id in connected_devices]
@@ -579,7 +665,7 @@ class CyncUserData:
                     home_devices[home_id][current_index] = device_id
                     devices[device_id] = {'name':device['displayName'],
                         'mesh_id':current_index,
-                        'switch_id':str(device['switchID']), 
+                        'switch_id':str(device.get('switchID',0)), 
                         'ONOFF': device_type in Capabilities['ONOFF'], 
                         'BRIGHTNESS': device_type in Capabilities["BRIGHTNESS"], 
                         "COLORTEMP":device_type in Capabilities["COLORTEMP"], 
