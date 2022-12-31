@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .cync_hub import CyncHub
 
-PLATFORMS: list[str] = ["light","binary_sensor","switch"]
+PLATFORMS: list[str] = ["light","binary_sensor","switch","fan"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Cync Room Lights from a config entry."""

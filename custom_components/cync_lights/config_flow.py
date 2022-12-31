@@ -69,15 +69,15 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             info = await cync_login(self.cync_hub, user_input)
+            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
         except TwoFactorCodeRequired:
             return await self.async_step_two_factor_code()
         except InvalidAuth:
             errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
             errors["base"] = "unknown"
         else:
-            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
             self.data = info
             return await self.async_step_finish_setup()
 
@@ -101,8 +101,8 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
         except InvalidAuth:
             errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
             errors["base"] = "unknown"
         else:
             self.data = info
@@ -129,7 +129,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): cv.multi_select({room : f'{room_info["name"]} ({room_info["home_name"]})' for room,room_info in self.data["data"]["cync_config"]["rooms"].items()}),
                 vol.Optional(
                     "switches",
-                    description = {"suggested_value" : []},
+                    description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['FAN']]},
                 ): cv.multi_select({switch_id : f'{sw_info["name"]} ({sw_info["room_name"]}:{sw_info["home_name"]})' for switch_id,sw_info in self.data["data"]["cync_config"]["devices"].items() if sw_info.get('ONOFF',False) and sw_info.get('MULTIELEMENT',1) == 1}),
                 vol.Optional(
                     "motion_sensors",
@@ -201,15 +201,15 @@ class CyncOptionsFlowHandler(config_entries.OptionsFlow):
 
         try:
             info = await cync_login(self.cync_hub, self.entry.data['user_input'])
+            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
         except TwoFactorCodeRequired:
             return await self.async_step_two_factor_code()
         except InvalidAuth:
             errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
             errors["base"] = "unknown"
         else:
-            info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
             self.data = info
             return await self.async_step_select_switches()
 
@@ -229,8 +229,8 @@ class CyncOptionsFlowHandler(config_entries.OptionsFlow):
             info["data"]["cync_config"] = await self.cync_hub.get_cync_config()
         except InvalidAuth:
             errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
             errors["base"] = "unknown"
         else:
             self.data = info

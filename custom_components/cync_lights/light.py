@@ -24,7 +24,7 @@ async def async_setup_entry(
             new_devices.append(CyncRoomEntity(hub.cync_rooms[room]))
 
     for switch_id in hub.cync_switches:
-        if not hub.cync_switches[switch_id]._update_callback and not hub.cync_switches[switch_id].plug and switch_id in config_entry.options["switches"]:
+        if not hub.cync_switches[switch_id]._update_callback and not hub.cync_switches[switch_id].plug and not hub.cync_switches[switch_id].fan and switch_id in config_entry.options["switches"]:
             new_devices.append(CyncSwitchEntity(hub.cync_switches[switch_id]))
 
     if new_devices:
