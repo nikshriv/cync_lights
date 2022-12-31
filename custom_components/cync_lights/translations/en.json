@@ -29,7 +29,7 @@
     },
     "error": {
       "invalid_auth": "Invalid Cync user credentials or two factor code",
-      "unknown": "Unknown error occurred while retrieving Cync configuration"
+      "unknown": "Invalid or unsupported Cync configuration, please ensure there is at least one WiFi connected Cync device in your Home(s)"
     },
     "abort": {
       "reauth_successful": "Reauthorization successful"
@@ -64,7 +64,7 @@
     },
     "error": {
       "invalid_auth": "Invalid Cync user credentials or two factor code",
-      "unknown": "Unknown error occurred while retrieving Cync configuration"
+      "unknown": "Invalid or unsupported Cync configuration, please ensure there is at least one WiFi connected Cync device in your Home(s)"
     }
   }
 }
