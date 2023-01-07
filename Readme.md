@@ -14,3 +14,5 @@ If anyone has devices that don't work with this integration (aside from thermost
 3. Close your browser and reopen it, then Navigate back to your HA instance. (This is an issue with HACs)
 4. Go to the HA Integrations page and add the Cync integration by pushing the "Add Integration" button. Sign in with your Cync email and password. Make sure to use the primary account as the integration does not work with secondary Cync accounts.
 5. Select the rooms, individual switches, motion sensors, and ambient light sensors you would like to include
+
+https://www.buymeacoffee.com/nikshriv
