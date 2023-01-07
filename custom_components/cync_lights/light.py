@@ -20,7 +20,7 @@ async def async_setup_entry(
 
     new_devices = []
     for room in hub.cync_rooms:
-        if not hub.cync_rooms[room]._update_callback and room in config_entry.options["rooms"]:
+        if not hub.cync_rooms[room]._update_callback and (room in config_entry.options["rooms"] or room in config_entry.options["subgroups"]):
             new_devices.append(CyncRoomEntity(hub.cync_rooms[room]))
 
     for switch_id in hub.cync_switches:
@@ -29,7 +29,6 @@ async def async_setup_entry(
 
     if new_devices:
         async_add_entities(new_devices)
-
 
 
 class CyncRoomEntity(LightEntity):
@@ -53,16 +52,24 @@ class CyncRoomEntity(LightEntity):
     def device_info(self) -> DeviceInfo:
         """Return device registry information for this entity."""
         return DeviceInfo(
-            identifiers = {(DOMAIN, f"{self.room.name} ({self.room.home_name})")},
+            identifiers = {(DOMAIN, f"{self.room.parent_room if self.room.is_subgroup else self.room.name} ({self.room.home_name})")},
             manufacturer = "Cync by Savant",
-            name = f"{self.room.name} ({self.room.home_name})",
+            name = f"{self.room.parent_room if self.room.is_subgroup else self.room.name} ({self.room.home_name})",
+            suggested_area = f"{self.room.parent_room if self.room.is_subgroup else self.room.name}",
         )
+
+    @property
+    def icon(self) -> str | None:
+        """Icon of the entity."""
+        if self.room.is_subgroup:
+            return "mdi:lightbulb-group-outline"
+        else:
+            return "mdi:lightbulb-group"
 
     @property
     def unique_id(self) -> str:
         """Return Unique ID string."""
-        id_list = list(self.room.switches.keys())
-        uid =  'cync_room_' + '-'.join(id_list)
+        uid =  'cync_room_' + '-'.join(self.room.switches) + '_' + '-'.join(self.room.subgroups)
         return uid
 
     @property
@@ -163,6 +170,7 @@ class CyncSwitchEntity(LightEntity):
             identifiers = {(DOMAIN, f"{self.cync_switch.room.name} ({self.cync_switch.home_name})")},
             manufacturer = "Cync by Savant",
             name = f"{self.cync_switch.room.name} ({self.cync_switch.home_name})",
+            suggested_area = f"{self.cync_switch.room.name}",
         )
 
     @property

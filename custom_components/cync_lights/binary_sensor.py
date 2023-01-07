@@ -51,6 +51,7 @@ class CyncMotionSensorEntity(BinarySensorEntity):
             identifiers = {(DOMAIN, f"{self.motion_sensor.room.name} ({self.motion_sensor.home_name})")},
             manufacturer = "Cync by Savant",
             name = f"{self.motion_sensor.room.name} ({self.motion_sensor.home_name})",
+            suggested_area = f"{self.motion_sensor.room.name}",
         )
 
     @property
@@ -97,6 +98,7 @@ class CyncAmbientLightSensorEntity(BinarySensorEntity):
             identifiers = {(DOMAIN, f"{self.ambient_light_sensor.room.name} ({self.ambient_light_sensor.home_name})")},
             manufacturer = "Cync by Savant",
             name = f"{self.ambient_light_sensor.room.name} ({self.ambient_light_sensor.home_name})",
+            suggested_area = f"{self.ambient_light_sensor.room.name}",
         )
 
     @property

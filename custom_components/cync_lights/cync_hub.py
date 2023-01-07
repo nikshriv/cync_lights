@@ -52,7 +52,9 @@ class CyncHub:
         self.options = options
         self._seq_num = 0
         self.pending_commands = {}
-
+        [room.initialize() for room in self.cync_rooms.values() if room.is_subgroup]
+        [room.initialize() for room in self.cync_rooms.values() if not room.is_subgroup]
+        
     def start_tcp_client(self):
         self.thread = threading.Thread(target=self._start_tcp_client,daemon=True)
         self.thread.start()
@@ -315,23 +317,53 @@ class CyncRoom:
 
         self.hub = hub
         self.room_id = room_id
+        self.home_id = room_id.split('-')[0]
         self.name = room_info.get('name','unknown')
         self.home_name = room_info.get('home_name','unknown')
+        self.parent_room = room_info.get('parent_room', 'unknown')
         self.mesh_id = int(room_info.get('mesh_id',0)).to_bytes(2,'little')
         self.power_state = False
         self.brightness = 0
         self.color_temp = 0
         self.rgb = {'r':0, 'g':0, 'b':0, 'active': False}
-        self.switches = room_info.get('switches',{})
-        self.home_id = None
+        self.switches = room_info.get('switches',[])
+        self.subgroups = room_info.get('subgroups',[])
+        self.is_subgroup = room_info.get('isSubgroup', False)
+        self.all_room_switches = self.switches
         self.controllers = []
         self.controller = room_info.get('room_controller',0)
         self._update_callback = None
-        self.support_brightness = True in [sw_info.get('BRIGHTNESS',False) for sw_info in self.switches.values()]
-        self.support_color_temp = True in [sw_info.get('COLORTEMP',False) for sw_info in self.switches.values()]
-        self.support_rgb = True in [sw_info.get('RGB',False) for sw_info in self.switches.values()]
+        self._update_parent_room = None
+        self.support_brightness = False
+        self.support_color_temp = False
+        self.support_rgb = False
+        self.switches_support_brightness = False
+        self.switches_support_color_temp = False
+        self.switches_support_rgb = False
+        self.groups_support_brightness = False
+        self.groups_support_color_temp = False
+        self.groups_support_rgb = False
         self._command_timout = 0.5
         self._command_retry_time = 5
+
+    def initialize(self):
+        """Initialization of supported features and registration of update function for all switches and subgroups in the room"""
+        self.switches_support_brightness = [device_id for device_id in self.switches if self.hub.cync_switches[device_id].support_brightness]
+        self.switches_support_color_temp = [device_id for device_id in self.switches if self.hub.cync_switches[device_id].support_color_temp]
+        self.switches_support_rgb = [device_id for device_id in self.switches if self.hub.cync_switches[device_id].support_rgb]
+        self.groups_support_brightness = [room_id for room_id in self.subgroups if self.hub.cync_rooms[room_id].support_brightness]
+        self.groups_support_color_temp = [room_id for room_id in self.subgroups if self.hub.cync_rooms[room_id].support_color_temp]
+        self.groups_support_rgb = [room_id for room_id in self.subgroups if self.hub.cync_rooms[room_id].support_rgb] 
+        self.support_brightness = (len(self.switches_support_brightness) + len(self.groups_support_brightness)) > 0
+        self.support_color_temp = (len(self.switches_support_color_temp) + len(self.groups_support_color_temp)) > 0
+        self.support_rgb = (len(self.switches_support_rgb) + len(self.groups_support_rgb)) > 0
+        for switch_id in self.switches:
+            self.hub.cync_switches[switch_id].register_room_updater(self.update_room)
+        for subgroup in self.subgroups:
+            self.hub.cync_rooms[subgroup].register_room_updater(self.update_room)
+            self.all_room_switches = self.all_room_switches + self.hub.cync_rooms[subgroup].switches
+        for subgroup in self.subgroups:
+            self.hub.cync_rooms[subgroup].all_room_switches = self.all_room_switches
 
     def register(self, update_callback) -> None:
         """Register callback, called when switch changes state."""
@@ -340,6 +372,9 @@ class CyncRoom:
     def reset(self) -> None:
         """Remove previously registered callback."""
         self._update_callback = None
+
+    def register_room_updater(self, parent_updater):
+        self._update_parent_room = parent_updater
 
     @property
     def max_mireds(self) -> int:
@@ -399,28 +434,23 @@ class CyncRoom:
         if self.hub.pending_commands.get(seq) is not None:
             self.hub.pending_commands.pop(seq)
 
-    def update_room(self, deviceID, state, brightness, color_temp, rgb):
+    def update_room(self):
         """Update the current state of the room"""
-        self.switches[deviceID]['state'] = state
-        self.switches[deviceID]['brightness'] = brightness
-        self.switches[deviceID]['color_temp'] = color_temp
-        self.switches[deviceID]['rgb'] = rgb
-
-        _power_state = True in [sw_info['state'] for sw_info in self.switches.values()]
-        _brightness = round(sum([sw_info['brightness'] for sw_info in self.switches.values() if sw_info.get('BRIGHTNESS',False)])/len([sw_info for sw_info in self.switches.values() if sw_info.get('BRIGHTNESS',False)]))
-        if self.support_color_temp:
-            color_temp_list = [sw_info['color_temp'] for sw_info in self.switches.values() if sw_info['COLORTEMP']]
-            _color_temp = round(sum(color_temp_list)/len(color_temp_list))
-        else: 
-            _color_temp = self.color_temp
-        if self.support_rgb:
-            r_list = [sw_info['rgb']['r'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
-            g_list = [sw_info['rgb']['g'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
-            b_list = [sw_info['rgb']['b'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
-            active = True in [sw_info['rgb']['active'] for sw_info in self.switches.values() if sw_info.get('RGB',False)]
-            _rgb = {'r':round(sum(r_list)/len(r_list)), 'g':round(sum(g_list)/len(r_list)), 'b':round(sum(b_list)/len(r_list)), 'active':active}
+        _brightness = self.brightness
+        _color_temp = self.color_temp
+        _rgb = self.rgb
+        _power_state = True in ([self.hub.cync_switches[device_id].power_state for device_id in self.switches] + [self.hub.cync_rooms[room_id].power_state for room_id in self.subgroups])
+        if self.support_brightness:
+            _brightness = round(sum([self.hub.cync_switches[device_id].brightness for device_id in self.switches] + [self.hub.cync_rooms[room_id].brightness for room_id in self.subgroups])/(len(self.switches) + len(self.subgroups)))
         else:
-            _rgb = self.rgb
+            _brightness = 100 if _power_state else 0
+        if self.support_color_temp:
+            _color_temp = round(sum([self.hub.cync_switches[device_id].color_temp for device_id in self.switches_support_color_temp] + [self.hub.cync_rooms[room_id].color_temp for room_id in self.groups_support_color_temp])/(len(self.switches_support_color_temp) + len(self.groups_support_color_temp)))
+        if self.support_rgb:
+            _rgb['r'] = round(sum([self.hub.cync_switches[device_id].rgb['r'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['r'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
+            _rgb['g'] = round(sum([self.hub.cync_switches[device_id].rgb['g'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['g'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
+            _rgb['b'] = round(sum([self.hub.cync_switches[device_id].rgb['b'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['b'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
+            _rgb['active'] = True in ([self.hub.cync_switches[device_id].rgb['active'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['active'] for room_id in self.groups_support_rgb])
         
         if _power_state != self.power_state or _brightness != self.brightness or _color_temp != self.color_temp or _rgb != self.rgb:
             self.power_state = _power_state
@@ -428,13 +458,15 @@ class CyncRoom:
             self.color_temp = _color_temp
             self.rgb = _rgb
             self.publish_update()
+            if self._update_parent_room:
+                self._update_parent_room()
 
     def update_controllers(self):
         """Update the list of responsive, Wi-Fi connected controller devices"""
         connected_devices = self.hub.connected_devices[self.home_id]
         controllers = []
         if len(connected_devices) > 0:
-            controllers = [self.hub.cync_switches[dev_id].switch_id for dev_id in self.switches.keys() if dev_id in connected_devices]
+            controllers = [self.hub.cync_switches[dev_id].switch_id for dev_id in self.all_room_switches if dev_id in connected_devices]
             others_available = [self.hub.cync_switches[dev_id].switch_id for dev_id in connected_devices]
             for controller in controllers:
                 if controller in others_available:
@@ -465,6 +497,7 @@ class CyncSwitch:
         self.controller = switch_info.get('switch_controller',0)
         self.controllers = []
         self._update_callback = None
+        self._update_parent_room = None
         self.support_brightness = switch_info.get('BRIGHTNESS',False)
         self.support_color_temp = switch_info.get('COLORTEMP',False)
         self.support_rgb = switch_info.get('RGB',False)
@@ -473,8 +506,6 @@ class CyncSwitch:
         self.elements = switch_info.get('MULTIELEMENT',1)
         self._command_timout = 0.5
         self._command_retry_time = 5
-        if self.room:
-            self.room.home_id = self.home_id
 
     def register(self, update_callback) -> None:
         """Register callback, called when switch changes state."""
@@ -483,6 +514,9 @@ class CyncSwitch:
     def reset(self) -> None:
         """Remove previously registered callback."""
         self._update_callback = None
+
+    def register_room_updater(self, parent_updater):
+        self._update_parent_room = parent_updater
 
     @property
     def max_mireds(self) -> int:
@@ -551,8 +585,8 @@ class CyncSwitch:
             self.color_temp = color_temp 
             self.rgb = rgb
             self.publish_update()
-            if self.room:
-                self.room.update_room(self.device_id,self.power_state,self.brightness,self.color_temp,self.rgb)
+            if self._update_parent_room:
+                self._update_parent_room()
 
     def update_controllers(self):
         """Update the list of responsive, Wi-Fi connected controller devices"""
@@ -564,7 +598,7 @@ class CyncSwitch:
                     #if this device is connected, make this the first available controller
                     controllers.append(self.switch_id)
             if self.room:
-                controllers = controllers + [self.hub.cync_switches[device_id].switch_id for device_id in self.room.switches.keys() if device_id in connected_devices and device_id != self.device_id]
+                controllers = controllers + [self.hub.cync_switches[device_id].switch_id for device_id in self.room.all_room_switches if device_id in connected_devices and device_id != self.device_id]
             others_available = [self.hub.cync_switches[device_id].switch_id for device_id in connected_devices]
             for controller in controllers:
                 if controller in others_available:
@@ -724,37 +758,31 @@ class CyncUserData:
                     home_controllers.pop(home_id,'')
                 else:
                     for room in home_info['groupsArray']:
-                        if len(room['deviceIDArray']) > 0:
+                        if (len(room.get('deviceIDArray',[])) + len(room.get('subgroupIDArray',[]))) > 0:
                             room_id = home_id + '-' + str(room['groupID'])
                             room_controller = home_controllers[home_id][0]
-                            available_room_controllers = [(id%1000) + (int(id/1000)*256) for id in room['deviceIDArray'] if 'switch_controller' in devices[home_devices[home_id][(id%1000)+(int(id/1000)*256)]]]
+                            available_room_controllers = [(id%1000) + (int(id/1000)*256) for id in room.get('deviceIDArray',[]) if 'switch_controller' in devices[home_devices[home_id][(id%1000)+(int(id/1000)*256)]]]
                             if len(available_room_controllers) > 0:
                                 room_controller = devices[home_devices[home_id][available_room_controllers[0]]]['switch_controller']
-                            for id in room['deviceIDArray']:
+                            for id in room.get('deviceIDArray',[]):
                                 id = (id % 1000) + (int(id / 1000)*256)
                                 devices[home_devices[home_id][id]]['room'] = room_id
                                 devices[home_devices[home_id][id]]['room_name'] = room['displayName']
                                 if 'switch_controller' not in devices[home_devices[home_id][id]] and devices[home_devices[home_id][id]].get('ONOFF',False):
                                     devices[home_devices[home_id][id]]['switch_controller'] = room_controller
                             rooms[room_id] = {'name':room['displayName'],
-                                'mesh_id': room['groupID'], 
-                                'room_controller':room_controller,
-                                'home_name':home['name'], 
-                                'switches':{
-                                    home_devices[home_id][(i%1000)+(int(i/1000)*256)]:{
-                                        'state':False, 
-                                        'brightness':0, 
-                                        'color_temp':0, 
-                                        'rgb':{'r':0, 'g':0, 'b':0, 'active': False}, 
-                                        'ONOFF':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False), 
-                                        'BRIGHTNESS':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('BRIGHTNESS',False), 
-                                        'COLORTEMP':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('COLORTEMP',False), 
-                                        'RGB':devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('RGB',False)
-                                    } 
-                                    for i in room['deviceIDArray'] if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False)
-                                }
+                                'mesh_id' : room['groupID'], 
+                                'room_controller' : room_controller,
+                                'home_name' : home['name'], 
+                                'switches' : [home_devices[home_id][(i%1000)+(int(i/1000)*256)] for i in room.get('deviceIDArray',[]) if devices[home_devices[home_id][(i%1000)+(int(i/1000)*256)]].get('ONOFF',False)],
+                                'isSubgroup' : room.get('isSubgroup',False),
+                                'subgroups' : [home_id + '-' + str(subgroup) for subgroup in room.get('subgroupIDArray',[])]
                             }
-        
+                    for room,room_info in rooms.items():
+                        if not room_info.get("isSubgroup",False) and len(subgroups := room_info.get("subgroups",[])) > 0:
+                            for subgroup in subgroups:
+                                rooms[subgroup]["parent_room"] = room_info["name"]
+
         if len(rooms) == 0 or len(devices) == 0 or len(home_controllers) == 0 or len(home_devices) == 0 or len(switchID_to_homeID) == 0:
             raise InvalidCyncConfiguration
         else:

@@ -50,6 +50,7 @@ class CyncPlugEntity(SwitchEntity):
             identifiers = {(DOMAIN, f"{self.cync_switch.room.name} ({self.cync_switch.home_name})")},
             manufacturer = "Cync by Savant",
             name = f"{self.cync_switch.room.name} ({self.cync_switch.home_name})",
+            suggested_area = f"{self.cync_switch.room.name}",
         )
 
     @property

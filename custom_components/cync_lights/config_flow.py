@@ -125,8 +125,12 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Optional(
                     "rooms",
-                    description = {"suggested_value" : [room for room in self.data["data"]["cync_config"]["rooms"].keys()]},
-                ): cv.multi_select({room : f'{room_info["name"]} ({room_info["home_name"]})' for room,room_info in self.data["data"]["cync_config"]["rooms"].items()}),
+                    description = {"suggested_value" : [room for room in self.data["data"]["cync_config"]["rooms"].keys() if not self.data["data"]["cync_config"]["rooms"][room]['isSubgroup']]},
+                ): cv.multi_select({room : f'{room_info["name"]} ({room_info["home_name"]})' for room,room_info in self.data["data"]["cync_config"]["rooms"].items() if not self.data["data"]["cync_config"]["rooms"][room]['isSubgroup']}),
+                vol.Optional(
+                    "subgroups",
+                    description = {"suggested_value" : [room for room in self.data["data"]["cync_config"]["rooms"].keys() if self.data["data"]["cync_config"]["rooms"][room]['isSubgroup']]},
+                ): cv.multi_select({room : f'{room_info["name"]} ({room_info.get("parent_room","")}:{room_info["home_name"]})' for room,room_info in self.data["data"]["cync_config"]["rooms"].items() if self.data["data"]["cync_config"]["rooms"][room]['isSubgroup']}),
                 vol.Optional(
                     "switches",
                     description = {"suggested_value" : [device_id for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info['FAN']]},
@@ -256,7 +260,11 @@ class CyncOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(
                     "rooms",
                     description = {"suggested_value" : [room for room in self.entry.options["rooms"] if room in self.entry.data["cync_config"]["rooms"].keys()]},
-                ): cv.multi_select({room : f'{room_info["name"]} ({room_info["home_name"]})' for room,room_info in self.entry.data["cync_config"]["rooms"].items()}),
+                ): cv.multi_select({room : f'{room_info["name"]} ({room_info["home_name"]})' for room,room_info in self.entry.data["cync_config"]["rooms"].items() if not self.data["data"]["cync_config"]["rooms"][room]['isSubgroup']}),
+                vol.Optional(
+                    "subgroups",
+                    description = {"suggested_value" : [room for room in self.entry.options["subgroups"] if room in self.entry.data["cync_config"]["rooms"].keys()]},
+                ): cv.multi_select({room : f'{room_info["name"]} ({room_info.get("parent_room","")}:{room_info["home_name"]})' for room,room_info in self.entry.data["cync_config"]["rooms"].items() if self.data["data"]["cync_config"]["rooms"][room]['isSubgroup']}),
                 vol.Optional(
                     "switches",
                     description = {"suggested_value" : [sw for sw in self.entry.options["switches"] if sw in self.entry.data["cync_config"]["devices"].keys()]},

@@ -17,13 +17,14 @@
         "description": "Please check your email and enter the two factor code"
       },
       "select_switches": {
-        "title": "Select Rooms, Switches, and Motion Sensors",
-        "description": "Please select the rooms, individual switches/bulbs, motion sensors, and ambient light sensors that you would like to add to Home Assistant",
+        "title": "Select Rooms, Groups, Switches, Motion Sensors, and Ambient Light Sensors",
+        "description": "Please select the rooms, groups, individual switches/bulbs, motion sensors, and ambient light sensors that you would like to add to Home Assistant",
         "data":{
-          "rooms":"Rooms List",
-          "switches":"Switches List",
-          "motion_sensors":"Motion Sensors List",
-          "ambient_light_sensors":"Ambient Light Sensors List"
+          "rooms":"Rooms [room (home)]",
+          "subgroups":"Groups [group (room:home)]",
+          "switches":"Switches [switch/bulb (room:home)]",
+          "motion_sensors":"Motion Sensors [sensor (room:home)]",
+          "ambient_light_sensors":"Ambient Light Sensors [sensor (room:home)]]"
         }
       }
     },
@@ -52,13 +53,14 @@
         "description": "Please check your email and enter the two factor code"
       },
       "select_switches": {
-        "title": "Select Rooms, Switches, and Motion Sensors",
-        "description": "Please select the rooms, individual switches/bulbs, motion sensors, and ambient light sensors that you would like to add to Home Assistant",
+        "title": "Select Rooms, Groups, Switches, Motion Sensors, and Ambient Light Sensors",
+        "description": "Please select the rooms, groups, individual switches/bulbs, motion sensors, and ambient light sensors that you would like to add to Home Assistant",
         "data":{
-          "rooms":"Rooms List",
-          "switches":"Switches List",
-          "motion_sensors":"Motion Sensors List",
-          "ambient_light_sensors":"Ambient Light Sensors List"
+          "rooms":"Rooms [room (home)]",
+          "subgroups":"Groups [group (room:home)]",
+          "switches":"Switches [switch/bulb (room:home)]",
+          "motion_sensors":"Motion Sensors [sensor (room:home)]",
+          "ambient_light_sensors":"Ambient Light Sensors [sensor (room:home)]]"
         }
       }
     },
