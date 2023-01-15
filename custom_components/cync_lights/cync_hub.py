@@ -781,8 +781,11 @@ class CyncUserData:
                     for room,room_info in rooms.items():
                         if not room_info.get("isSubgroup",False) and len(subgroups := room_info.get("subgroups",[])) > 0:
                             for subgroup in subgroups:
-                                rooms[subgroup]["parent_room"] = room_info["name"]
-
+                                if rooms.get(subgroup,None):
+                                    rooms[subgroup]["parent_room"] = room_info["name"]
+                                else:
+                                    room_info['subgroups'].pop(room_info['subgroups'].index(subgroup))
+                                    
         if len(rooms) == 0 or len(devices) == 0 or len(home_controllers) == 0 or len(home_devices) == 0 or len(switchID_to_homeID) == 0:
             raise InvalidCyncConfiguration
         else:
