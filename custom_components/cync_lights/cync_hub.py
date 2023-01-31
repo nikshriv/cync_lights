@@ -4,6 +4,7 @@ import asyncio
 import struct
 import aiohttp
 import math
+import ssl
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,7 +76,16 @@ class CyncHub:
     async def _connect(self):
         while not self.shutting_down:
             try:
-                self.reader, self.writer = await asyncio.open_connection('cm.gelighting.com', 23778)
+                context = ssl.create_default_context()
+                try:
+                    self.reader, self.writer = await asyncio.open_connection('cm.gelighting.com', 23779, ssl = context)
+                except Exception as e:
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    try:
+                        self.reader, self.writer = await asyncio.open_connection('cm.gelighting.com', 23779, ssl = context)
+                    except Exception as e:
+                        self.reader, self.writer = await asyncio.open_connection('cm.gelighting.com', 23778)
             except Exception as e:
                 _LOGGER.error(str(type(e).__name__) + ": " + str(e))
                 await asyncio.sleep(5)
@@ -779,7 +789,7 @@ class CyncUserData:
                                 'subgroups' : [home_id + '-' + str(subgroup) for subgroup in room.get('subgroupIDArray',[])]
                             }
                     for room,room_info in rooms.items():
-                        if not room_info.get("isSubgroup",False) and len(subgroups := room_info.get("subgroups",[])) > 0:
+                        if not room_info.get("isSubgroup",False) and len(subgroups := room_info.get("subgroups",[]).copy()) > 0:
                             for subgroup in subgroups:
                                 if rooms.get(subgroup,None):
                                     rooms[subgroup]["parent_room"] = room_info["name"]
