@@ -341,7 +341,7 @@ class CyncRoom:
         self.is_subgroup = room_info.get('isSubgroup', False)
         self.all_room_switches = self.switches
         self.controllers = []
-        self.controller = room_info.get('room_controller',0)
+        self.default_controller = room_info.get('room_controller',self.hub.home_controllers[self.home_id][0])
         self._update_callback = None
         self._update_parent_room = None
         self.support_brightness = False
@@ -402,20 +402,24 @@ class CyncRoom:
         update_received = False
         while not update_received and attempts < int(self._command_retry_time/self._command_timout):
             seq = str(self.hub.get_seq_num())
+            if len(self.controllers) > 0:
+                controller = self.controllers[attempts%len(self.controllers)]
+            else:
+                controller = self.default_controller
             if attr_rgb is not None and attr_br is not None:
                 if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
-                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
                 else:
-                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], controller, self.mesh_id, seq)
             elif attr_rgb is None and attr_ct is None and attr_br is not None:
-                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], controller, self.mesh_id, seq)
             elif attr_rgb is not None and attr_br is None:
-                self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
             elif attr_ct is not None:
                 ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
-                self.hub.set_color_temp(ct, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.set_color_temp(ct, controller, self.mesh_id, seq)
             else:
-                self.hub.turn_on(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.turn_on(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
             await asyncio.sleep(self._command_timout)
             if self.hub.pending_commands.get(seq, None) is not None:
@@ -430,7 +434,11 @@ class CyncRoom:
         update_received = False
         while not update_received and attempts < int(self._command_retry_time/self._command_timout):
             seq = str(self.hub.get_seq_num())
-            self.hub.turn_off(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            if len(self.controllers) > 0:
+                controller = self.controllers[attempts%len(self.controllers)]
+            else:
+                controller = self.default_controller
+            self.hub.turn_off(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
             await asyncio.sleep(self._command_timout)
             if self.hub.pending_commands.get(seq, None) is not None:
@@ -483,7 +491,7 @@ class CyncRoom:
                     others_available.remove(controller)
             self.controllers = controllers + others_available
         else:
-            self.controllers = [self.controller]
+            self.controllers = [self.default_controller]
 
     def publish_update(self):
         if self._update_callback:
@@ -504,7 +512,7 @@ class CyncSwitch:
         self.brightness = 0
         self.color_temp = 0
         self.rgb = {'r':0, 'g':0, 'b':0, 'active':False}
-        self.controller = switch_info.get('switch_controller',0)
+        self.default_controller = switch_info.get('switch_controller',self.hub.home_controllers[self.home_id][0])
         self.controllers = []
         self._update_callback = None
         self._update_parent_room = None
@@ -544,20 +552,24 @@ class CyncSwitch:
         update_received = False
         while not update_received and attempts < int(self._command_retry_time/self._command_timout):
             seq = str(self.hub.get_seq_num())
+            if len(self.controllers) > 0:
+                controller = self.controllers[attempts%len(self.controllers)]
+            else:
+                controller = self.default_controller
             if attr_rgb is not None and attr_br is not None:
                 if math.isclose(attr_br, max([self.rgb['r'],self.rgb['g'],self.rgb['b']])*self.brightness/100, abs_tol = 2):
-                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                    self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
                 else:
-                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                    self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], controller, self.mesh_id, seq)
             elif attr_rgb is None and attr_ct is None and attr_br is not None:
-                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], controller, self.mesh_id, seq)
             elif attr_rgb is not None and attr_br is None:
-                self.hub.combo_control(True, self.brightness, 254, attr_rgb, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
             elif attr_ct is not None:
                 ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
-                self.hub.set_color_temp(ct, self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.set_color_temp(ct, controller, self.mesh_id, seq)
             else:
-                self.hub.turn_on(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+                self.hub.turn_on(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
             await asyncio.sleep(self._command_timout)
             if self.hub.pending_commands.get(seq, None) is not None:
@@ -572,7 +584,11 @@ class CyncSwitch:
         update_received = False
         while not update_received and attempts < int(self._command_retry_time/self._command_timout):
             seq = str(self.hub.get_seq_num())
-            self.hub.turn_off(self.controllers[attempts%len(self.controllers)], self.mesh_id, seq)
+            if len(self.controllers) > 0:
+                controller = self.controllers[attempts%len(self.controllers)]
+            else:
+                controller = self.default_controller
+            self.hub.turn_off(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
             await asyncio.sleep(self._command_timout)
             if self.hub.pending_commands.get(seq, None) is not None:
@@ -615,7 +631,7 @@ class CyncSwitch:
                     others_available.remove(controller)
             self.controllers = controllers + others_available
         else:
-            self.controllers = [self.controller]
+            self.controllers = [self.default_controller]
 
     def publish_update(self):
         if self._update_callback:
