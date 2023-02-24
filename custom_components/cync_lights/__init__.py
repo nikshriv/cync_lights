@@ -16,12 +16,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub = CyncHub(entry.data, entry.options, remove_options_update_listener)
     hass.data[DOMAIN][entry.entry_id] = hub
     hub.start_tcp_client()
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
 
     return True
 
 async def options_update_listener(
-    hass: core.HomeAssistant, config_entry: config_entries.ConfigEntry
+    hass: HomeAssistant, config_entry: ConfigEntry
 ):
     """Handle options update."""
     await hass.config_entries.async_reload(config_entry.entry_id)
