@@ -16,7 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub = CyncHub(entry.data, entry.options, remove_options_update_listener)
     hass.data[DOMAIN][entry.entry_id] = hub
     hub.start_tcp_client()
-    hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
