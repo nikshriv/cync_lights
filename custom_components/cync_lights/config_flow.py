@@ -16,7 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required("username"): str,
-        vol.Required("password"): str,       
+        vol.Required("password"): str,
     }
 )
 STEP_TWO_FACTOR_CODE = vol.Schema(
@@ -145,7 +145,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): cv.multi_select({device_id : f'{device_info["name"]} ({device_info["room_name"]}:{device_info["home_name"]})' for device_id,device_info in self.data["data"]["cync_config"]["devices"].items() if device_info.get('AMBIENT_LIGHT',False)}),
             }
         )
-        
+
         return self.async_show_form(step_id="select_switches", data_schema=switches_data_schema)
 
     async def _async_finish_setup(
@@ -154,7 +154,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Finish setup and create entry"""
 
         existing_entry = await self.async_set_unique_id(self.data['title'])
-        if not existing_entry:              
+        if not existing_entry:
             return self.async_create_entry(title=self.data["title"], data=self.data["data"], options=self.options)
         else:
             self.hass.config_entries.async_update_entry(existing_entry, data=self.data['data'], options=self.options)
