@@ -121,7 +121,7 @@ class CyncRoomEntity(LightEntity):
             modes.add(ColorMode.BRIGHTNESS)
         if not modes:
             modes.add(ColorMode.ONOFF)
-            
+
         return modes
 
     @property
@@ -136,7 +136,7 @@ class CyncRoomEntity(LightEntity):
         if self.room.support_brightness:
             return ColorMode.BRIGHTNESS
         else:
-            return ColorMode.ONOFF 
+            return ColorMode.ONOFF
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
@@ -176,7 +176,7 @@ class CyncSwitchEntity(LightEntity):
     @property
     def unique_id(self) -> str:
         """Return Unique ID string."""
-        return 'cync_switch_' + self.cync_switch.device_id 
+        return 'cync_switch_' + self.cync_switch.device_id
 
     @property
     def name(self) -> str:
@@ -242,7 +242,7 @@ class CyncSwitchEntity(LightEntity):
         if self.cync_switch.support_brightness:
             return ColorMode.BRIGHTNESS
         else:
-            return ColorMode.ONOFF 
+            return ColorMode.ONOFF
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
