@@ -417,6 +417,7 @@ class CyncRoom:
                 self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
             elif attr_ct is not None:
                 ct = round(100*(self.max_mireds - attr_ct)/(self.max_mireds - self.min_mireds))
+                self.hub.turn_on(controller, self.mesh_id, seq)
                 self.hub.set_color_temp(ct, controller, self.mesh_id, seq)
             else:
                 self.hub.turn_on(controller, self.mesh_id, seq)
