@@ -311,7 +311,7 @@ class CyncHub:
         self.loop.call_soon_threadsafe(self.send_request,power_request)
 
     def set_color_temp(self,color_temp,switch_id,mesh_id,seq):
-        color_temp_request = bytes.fromhex('730000001e') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8e20c000000000000') + mesh_id + bytes.fromhex('e2000005') + (1).to_bytes(1,'big') + color_temp.to_bytes(1,'big') + ((469 + int(mesh_id[0]) + int(mesh_id[1]) + color_temp)%256).to_bytes(1,'big') + bytes.fromhex('7e')
+        color_temp_request = bytes.fromhex('730000001e') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8e20c000000000000') + mesh_id + bytes.fromhex('e2000005') + color_temp.to_bytes(1,'big') + ((469 + int(mesh_id[0]) + int(mesh_id[1]) + color_temp)%256).to_bytes(1,'big') + bytes.fromhex('7e')
         self.loop.call_soon_threadsafe(self.send_request,color_temp_request)
 
     def get_seq_num(self):
