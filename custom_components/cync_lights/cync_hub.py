@@ -470,8 +470,6 @@ class CyncRoom:
             _rgb['b'] = round(sum([self.hub.cync_switches[device_id].rgb['b'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['b'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
             _rgb['active'] = True in ([self.hub.cync_switches[device_id].rgb['active'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['active'] for room_id in self.groups_support_rgb])
         
-        if _brightness != self.brightness or _color_temp != self.color_temp or _rgb != self.rgb:
-            _power_state = True
         if _power_state != self.power_state or _brightness != self.brightness or _color_temp != self.color_temp or _rgb != self.rgb:
             self.power_state = _power_state
             self.brightness = _brightness
