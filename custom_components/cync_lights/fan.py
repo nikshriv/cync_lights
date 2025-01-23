@@ -65,8 +65,8 @@ class CyncFanEntity(FanEntity):
 
     @property
     def supported_features(self) -> int:
-        """Return true if fan is on."""
-        return FanEntityFeature.SET_SPEED
+        """Return the list of supported features."""
+        return FanEntityFeature.SET_SPEED | FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
 
     @property
     def is_on(self) -> bool | None:
