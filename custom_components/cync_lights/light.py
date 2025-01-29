@@ -19,8 +19,10 @@ async def async_setup_entry(
     hub = hass.data[DOMAIN][config_entry.entry_id]
 
     new_devices = []
+    config_rooms = "rooms" in config_entry.options and config_entry.options["rooms"] or {}
+    config_subgroups = "subgroups" in config_entry.options and config_entry.options["subgroups"] or {}
     for room in hub.cync_rooms:
-        if not hub.cync_rooms[room]._update_callback and (room in config_entry.options["rooms"] or room in config_entry.options["subgroups"]):
+        if not hub.cync_rooms[room]._update_callback and (room in config_rooms or room in config_subgroups):
             new_devices.append(CyncRoomEntity(hub.cync_rooms[room]))
 
     for switch_id in hub.cync_switches:
