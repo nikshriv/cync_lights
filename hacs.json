@@ -1,5 +1,5 @@
 {
-  "name": "Cync Lights Custom Integration (Forked)",
+  "name": "Cync Lights Custom Integration",
   "domains": ["light"],
   "render_readme": true
 }
