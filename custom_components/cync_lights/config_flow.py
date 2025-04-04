@@ -75,7 +75,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except InvalidAuth:
             errors["base"] = "invalid_auth"
         except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+            _LOGGER.error(e)
             errors["base"] = "unknown"
         else:
             self.data = info
@@ -102,7 +102,7 @@ class CyncConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except InvalidAuth:
             errors["base"] = "invalid_auth"
         except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+            _LOGGER.error(e)
             errors["base"] = "unknown"
         else:
             self.data = info
@@ -211,7 +211,7 @@ class CyncOptionsFlowHandler(config_entries.OptionsFlow):
         except InvalidAuth:
             errors["base"] = "invalid_auth"
         except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+            _LOGGER.error(e)
             errors["base"] = "unknown"
         else:
             self.data = info
@@ -234,7 +234,7 @@ class CyncOptionsFlowHandler(config_entries.OptionsFlow):
         except InvalidAuth:
             errors["base"] = "invalid_auth"
         except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+            _LOGGER.error(e)
             errors["base"] = "unknown"
         else:
             self.data = info

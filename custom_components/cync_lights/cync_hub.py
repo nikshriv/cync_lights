@@ -87,7 +87,7 @@ class CyncHub:
                     except Exception as e:
                         self.reader, self.writer = await asyncio.open_connection('cm.gelighting.com', 23778)
             except Exception as e:
-                _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+                _LOGGER.error(e)
                 await asyncio.sleep(5)
             else:
                 read_tcp_messages = asyncio.create_task(self._read_tcp_messages(), name = "Read TCP Messages")
@@ -103,16 +103,16 @@ class CyncHub:
                         try:
                             result = task.result()
                         except Exception as e:
-                            _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+                            _LOGGER.error(e)
                     for task in pending:
                         task.cancel()
                     if not self.shutting_down:
-                        _LOGGER.error("Connection to Cync server reset, restarting in 15 seconds")
+                        _LOGGER.info("Connection to Cync server reset, restarting in 15 seconds")
                         await asyncio.sleep(15)
                     else:
-                        _LOGGER.debug("Cync client shutting down")
+                        _LOGGER.info("Cync client shutting down")
                 except Exception as e:
-                    _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+                    _LOGGER.error(e)
 
     async def _read_tcp_messages(self):
         self.writer.write(self.login_code)
@@ -145,7 +145,7 @@ class CyncHub:
                                 state = int(packet[27]) > 0
                                 brightness = int(packet[28]) if state else 0
                                 if deviceID in self.cync_switches:
-                                    self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp_kelvin,self.cync_switches[deviceID].rgb)
+                                    self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
                             elif packet_length >= 25 and int(packet[13]) == 84:
                                 #parse motion and ambient light sensor packet
                                 deviceID = self.home_devices[home_id][int(packet[16])]
@@ -169,7 +169,7 @@ class CyncHub:
                                                 device_id = self.home_devices[home_id][(i+1)*256 + int(packet[0])]
                                                 state = int((int(packet[12]) >> i) & int(packet[8])) > 0
                                                 brightness = 100 if state else 0
-                                                self.cync_switches[device_id].update_switch(state,brightness,self.cync_switches[device_id].color_temp_kelvin,self.cync_switches[device_id].rgb)
+                                                self.cync_switches[device_id].update_switch(state,brightness,self.cync_switches[device_id].color_temp,self.cync_switches[device_id].rgb)
                                         else:
                                             state = int(packet[8]) > 0
                                             brightness = int(packet[12]) if state else 0
@@ -186,7 +186,7 @@ class CyncHub:
                                 state = int(packet[27]) > 0
                                 brightness = int(packet[28]) if state else 0
                                 if deviceID in self.cync_switches:
-                                    self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp_kelvin,self.cync_switches[deviceID].rgb)
+                                    self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
                             elif packet_length >= 25 and int(packet[13]) == 84:
                                 #parse motion and ambient light sensor packet
                                 deviceID = self.home_devices[home_id][int(packet[16])]
@@ -210,7 +210,7 @@ class CyncHub:
                                                 device_id = self.home_devices[home_id][(i+1)*256 + int(packet[3])]
                                                 state = int((int(packet[5]) >> i) & int(packet[4])) > 0
                                                 brightness = 100 if state else 0
-                                                self.cync_switches[device_id].update_switch(state,brightness,self.cync_switches[device_id].color_temp_kelvin,self.cync_switches[device_id].rgb)
+                                                self.cync_switches[device_id].update_switch(state,brightness,self.cync_switches[device_id].color_temp,self.cync_switches[device_id].rgb)
                                         else:
                                             state = int(packet[4]) > 0
                                             brightness = int(packet[5]) if state else 0
@@ -228,7 +228,7 @@ class CyncHub:
                             if command_received is not None:
                                 command_received(seq)
                 except Exception as e:
-                    _LOGGER.error(str(type(e).__name__) + ": " + str(e))
+                    _LOGGER.error(e)
                 data = data[packet_length+5:]
         raise ShuttingDown
 
@@ -334,7 +334,7 @@ class CyncRoom:
         self.mesh_id = int(room_info.get('mesh_id',0)).to_bytes(2,'little')
         self.power_state = False
         self.brightness = 0
-        self.color_temp_kelvin = 0
+        self.color_temp = 0
         self.rgb = {'r':0, 'g':0, 'b':0, 'active': False}
         self.switches = room_info.get('switches',[])
         self.subgroups = room_info.get('subgroups',[])
@@ -417,15 +417,9 @@ class CyncRoom:
                 self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
             elif attr_ct is not None:
                 self.hub.turn_on(controller, self.mesh_id, seq)
-                # Sync wants the color temp as a percentage of the range. So we need to
-                # calculate what percentage of the color temp range is being requested
-                # before sending it to the server.
-                color_temp = round(
-                    (
-                        (attr_ct - self.min_color_temp_kelvin) /
-                        self.max_color_temp_kelvin
-                    ) * 100
-                )
+                # Cync uses the range 0% to 100% to set the color temp, so we need to
+                # calculate the percentage of the color temp range that is being requested
+                color_temp = round(100*((attr_ct - self.min_color_temp_kelvin) / (self.max_color_temp_kelvin - self.min_color_temp_kelvin)))
                 self.hub.set_color_temp(color_temp, controller, self.mesh_id, seq)
             else:
                 self.hub.turn_on(controller, self.mesh_id, seq)
@@ -464,7 +458,7 @@ class CyncRoom:
     def update_room(self):
         """Update the current state of the room"""
         _brightness = self.brightness
-        _color_temp = self.color_temp_kelvin
+        _color_temp = self.color_temp
         _rgb = self.rgb
         _power_state = True in ([self.hub.cync_switches[device_id].power_state for device_id in self.switches] + [self.hub.cync_rooms[room_id].power_state for room_id in self.subgroups])
         if self.support_brightness:
@@ -472,20 +466,20 @@ class CyncRoom:
         else:
             _brightness = 100 if _power_state else 0
         if self.support_color_temp:
-            _color_temp = round(sum([self.hub.cync_switches[device_id].color_temp_kelvin for device_id in self.switches_support_color_temp] + [self.hub.cync_rooms[room_id].color_temp_kelvin for room_id in self.groups_support_color_temp])/(len(self.switches_support_color_temp) + len(self.groups_support_color_temp)))
+            _color_temp = round(sum([self.hub.cync_switches[device_id].color_temp for device_id in self.switches_support_color_temp] + [self.hub.cync_rooms[room_id].color_temp for room_id in self.groups_support_color_temp])/(len(self.switches_support_color_temp) + len(self.groups_support_color_temp)))
         if self.support_rgb:
             _rgb['r'] = round(sum([self.hub.cync_switches[device_id].rgb['r'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['r'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
             _rgb['g'] = round(sum([self.hub.cync_switches[device_id].rgb['g'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['g'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
             _rgb['b'] = round(sum([self.hub.cync_switches[device_id].rgb['b'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['b'] for room_id in self.groups_support_rgb])/(len(self.switches_support_rgb) + len(self.groups_support_rgb)))
             _rgb['active'] = True in ([self.hub.cync_switches[device_id].rgb['active'] for device_id in self.switches_support_rgb] + [self.hub.cync_rooms[room_id].rgb['active'] for room_id in self.groups_support_rgb])
-        if _power_state != self.power_state or _brightness != self.brightness or _color_temp != self.color_temp_kelvin or _rgb != self.rgb:
+        if _power_state != self.power_state or _brightness != self.brightness or _color_temp != self.color_temp or _rgb != self.rgb:
             self.power_state = _power_state
             self.brightness = _brightness
-            self.color_temp_kelvin = _color_temp
+            self.color_temp = _color_temp
             self.rgb = _rgb
-            self.publish_update()
-            if self._update_parent_room:
-                self._update_parent_room()
+        self.publish_update()
+        if self._update_parent_room:
+            self._update_parent_room()
 
     def update_controllers(self):
         """Update the list of responsive, Wi-Fi connected controller devices"""
@@ -518,7 +512,7 @@ class CyncSwitch:
         self.room = room
         self.power_state = False
         self.brightness = 0
-        self.color_temp_kelvin = 0
+        self.color_temp = 0
         self.rgb = {'r':0, 'g':0, 'b':0, 'active':False}
         self.default_controller = switch_info.get('switch_controller',self.hub.home_controllers[self.home_id][0])
         self.controllers = []
@@ -574,15 +568,9 @@ class CyncSwitch:
             elif attr_rgb is not None and attr_br is None:
                 self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
             elif attr_ct is not None:
-                # Sync wants the color temp as a percentage of the range. So we need to
-                # calculate what percentage of the color temp range is being requested
-                # before sending it to the server.
-                color_temp = round(
-                    (
-                        (attr_ct - self.min_color_temp_kelvin) /
-                        self.max_color_temp_kelvin
-                    ) * 100
-                )
+                # Cync uses the range 0% to 100% to set the color temp, so we need to
+                # calculate the percentage of the color temp range that is being requested
+                color_temp = round(100*((attr_ct - self.min_color_temp_kelvin) /(self.max_color_temp_kelvin - self.min_color_temp_kelvin)))
                 self.hub.set_color_temp(color_temp, controller, self.mesh_id, seq)
             else:
                 self.hub.turn_on(controller, self.mesh_id, seq)
@@ -621,25 +609,14 @@ class CyncSwitch:
     def update_switch(self,state,brightness,color_temp,rgb):
         """Update the state of the switch as updates are received from the Cync server"""
         self.update_received = True
-        # Cync sends the color temp as a percentage from 0-100 based on the max and min
-        # color temp. Most Cync bulbs support 2000K-7000K, so we have to calculate what
-        # is actually being requested.
-        _color_temp = round(
-            (self.max_color_temp_kelvin - self.min_color_temp_kelvin) *
-            (color_temp / 100) +
-            self.min_color_temp_kelvin
-        )
-        if self.power_state != state or self.brightness != brightness or self.color_temp_kelvin != _color_temp or self.rgb != rgb:
+        if self.power_state != state or self.brightness != brightness or self.color_temp != color_temp or self.rgb != rgb:
             self.power_state = state
             self.brightness = brightness if self.support_brightness and state else 100 if state else 0
-            # Cync sends the color temp as a percentage from 0-100 based on the max and
-            # min color temp. Most Cync bulbs support 2000K-7000K, so we have to
-            # calculate what is actually being requested.
-            self.color_temp_kelvin = _color_temp
+            self.color_temp = color_temp
             self.rgb = rgb
-            self.publish_update()
-            if self._update_parent_room:
-                self._update_parent_room()
+        self.publish_update()
+        if self._update_parent_room:
+            self._update_parent_room()
 
     def update_controllers(self):
         """Update the list of responsive, Wi-Fi connected controller devices"""
