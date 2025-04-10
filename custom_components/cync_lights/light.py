@@ -203,7 +203,7 @@ class CyncSwitchEntity(LightEntity):
     @property
     def color_temp_kelvin(self) -> int | None:
         """Return the color temperature of this light for HA."""
-        return self.min_color_temp_kelvin + round((self.max_color_temp_kelvin-self.min_color_temp_kelvin)*self.room.color_temp/100)
+        return self.min_color_temp_kelvin + round((self.max_color_temp_kelvin-self.min_color_temp_kelvin)*self.cync_switch.color_temp/100)
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
