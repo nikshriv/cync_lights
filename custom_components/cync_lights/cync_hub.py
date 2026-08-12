@@ -87,7 +87,7 @@ class CyncHub:
                     except Exception as e:
                         self.reader, self.writer = await asyncio.open_connection('cm.gelighting.com', 23778)
             except Exception as e:
-                _LOGGER.error(e)
+                _LOGGER.exception("Failed to establish TCP connection to Cync server")
                 await asyncio.sleep(5)
             else:
                 read_tcp_messages = asyncio.create_task(self._read_tcp_messages(), name = "Read TCP Messages")
@@ -103,7 +103,7 @@ class CyncHub:
                         try:
                             result = task.result()
                         except Exception as e:
-                            _LOGGER.error(e)
+                            _LOGGER.exception(f"Background task '{name}' raised an exception")
                     for task in pending:
                         task.cancel()
                     if not self.shutting_down:
@@ -112,22 +112,43 @@ class CyncHub:
                     else:
                         _LOGGER.info("Cync client shutting down")
                 except Exception as e:
-                    _LOGGER.error(e)
+                    _LOGGER.exception("Unexpected error in _connect() task-wait/cleanup block")
 
     async def _read_tcp_messages(self):
         self.writer.write(self.login_code)
         await self.writer.drain()
-        await self.reader.read(1000)
+        # The initial login-response read previously had no timeout. If the server ever
+        # doesn't respond, this would hang forever with self.logged_in never becoming
+        # True, silently blocking every other task that waits on it (_update_state,
+        # _update_connected_devices) with no exception, no retry, no log output.
+        await asyncio.wait_for(self.reader.read(1000), timeout=10)
         self.logged_in = True
+        # `data` now persists across read() calls instead of being replaced by each one.
+        # Root cause: some packet types (e.g. the ping-ack response, packet_type 171,
+        # ~1019 bytes) can exceed a single read(1000) call's worth of bytes over a real
+        # network connection. The previous code processed each read() in isolation, so a
+        # packet split across two reads had its leftover bytes silently discarded
+        # (`data[packet_length+5:]` on a too-short buffer just returns empty, no error) --
+        # this reliably broke ping-based device discovery (_update_connected_devices)
+        # on a fresh connection, since its ack packets are large enough to routinely span
+        # two reads, while smaller packet types worked fine and masked the issue.
+        data = b""
         while not self.shutting_down:
-            data = await self.reader.read(1000)
-            if len(data) == 0:
+            chunk = await self.reader.read(1000)
+            if len(chunk) == 0:
                 self.logged_in = False
                 raise LostConnection
+            data += chunk
             while len(data) >= 12:
                 packet_type = int(data[0])
                 packet_length = struct.unpack(">I", data[1:5])[0]
                 packet = data[5:packet_length+5]
+                if len(packet) < packet_length:
+                    # Not enough bytes have arrived yet for this packet -- wait for the
+                    # next read() rather than treating it as corrupt. `data` is left
+                    # untouched so the same packet is retried whole once more bytes
+                    # have been appended above.
+                    break
                 try:
                     if packet_length == len(packet):
                         if packet_type == 115:
@@ -279,12 +300,24 @@ class CyncHub:
     async def _update_state(self):
         while not self.connected_devices_updated:
             await asyncio.sleep(2)
-        for connected_devices in self.connected_devices.values():
+        for home_id, connected_devices in self.connected_devices.items():
             if len(connected_devices) > 0:
                 controller = self.cync_switches[connected_devices[0]].switch_id
-                seq = self.get_seq_num()
-                state_request = bytes.fromhex('7300000018') + int(controller).to_bytes(4,'big') + seq.to_bytes(2,'big') + bytes.fromhex('007e00000000f85206000000ffff0000567e')
-                self.loop.call_soon_threadsafe(self.send_request,state_request)
+            else:
+                # Ping-based discovery can legitimately come back empty for a home (e.g.
+                # if its devices are slow to respond, or were affected by the read()
+                # buffering issue fixed above on an older client). Fall back to any
+                # already-known controller for the home instead of silently skipping
+                # the state request entirely, which otherwise leaves every entity for
+                # that home on blank/default data until something else happens to
+                # command it directly.
+                home_controllers = self.home_controllers.get(home_id, [])
+                if not home_controllers:
+                    continue
+                controller = home_controllers[0]
+            seq = self.get_seq_num()
+            state_request = bytes.fromhex('7300000018') + int(controller).to_bytes(4,'big') + seq.to_bytes(2,'big') + bytes.fromhex('007e00000000f85206000000ffff0000567e')
+            self.loop.call_soon_threadsafe(self.send_request,state_request)
         while False in [self.cync_switches[dev_id]._update_callback is not None for dev_id in self.options["switches"]] and False in [self.cync_rooms[dev_id]._update_callback is not None for dev_id in self.options["rooms"]]:
             await asyncio.sleep(2)
         for dev in self.cync_switches.values():
