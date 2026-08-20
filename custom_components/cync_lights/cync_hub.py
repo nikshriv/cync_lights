@@ -415,6 +415,13 @@ class CyncRoom:
                 self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], controller, self.mesh_id, seq)
             elif attr_rgb is not None and attr_br is None:
                 self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
+            elif attr_ct is not None and attr_br is not None:
+                # combo_control accepts a real 0-100 color-temp percentage in its
+                # color_tone byte (not just the 254=RGB/255=none mode markers used
+                # above), so brightness+color_temp can be sent atomically instead of
+                # as two separate calls (which silently dropped brightness before).
+                color_temp = round(100*((attr_ct - self.min_color_temp_kelvin) / (self.max_color_temp_kelvin - self.min_color_temp_kelvin)))
+                self.hub.combo_control(True, round(attr_br*100/255), color_temp, [0,0,0], controller, self.mesh_id, seq)
             elif attr_ct is not None:
                 self.hub.turn_on(controller, self.mesh_id, seq)
                 # Cync uses the range 0% to 100% to set the color temp, so we need to
@@ -567,6 +574,9 @@ class CyncSwitch:
                 self.hub.combo_control(True, round(attr_br*100/255), 255, [255,255,255], controller, self.mesh_id, seq)
             elif attr_rgb is not None and attr_br is None:
                 self.hub.combo_control(True, self.brightness, 254, attr_rgb, controller, self.mesh_id, seq)
+            elif attr_ct is not None and attr_br is not None:
+                color_temp = round(100*((attr_ct - self.min_color_temp_kelvin) /(self.max_color_temp_kelvin - self.min_color_temp_kelvin)))
+                self.hub.combo_control(True, round(attr_br*100/255), color_temp, [0,0,0], controller, self.mesh_id, seq)
             elif attr_ct is not None:
                 # Cync uses the range 0% to 100% to set the color temp, so we need to
                 # calculate the percentage of the color temp range that is being requested
