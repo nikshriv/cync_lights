@@ -141,20 +141,22 @@ class CyncHub:
 
                             if packet_length >= 33 and int(packet[13]) == 219:
                                 #parse state and brightness change packet
-                                deviceID = self.home_devices[home_id][int(packet[21])]
-                                state = int(packet[27]) > 0
-                                brightness = int(packet[28]) if state else 0
-                                if deviceID in self.cync_switches:
-                                    self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
+                                if int(packet[21]) < len(self.home_devices[home_id]):
+                                    deviceID = self.home_devices[home_id][int(packet[21])]
+                                    state = int(packet[27]) > 0
+                                    brightness = int(packet[28]) if state else 0
+                                    if deviceID in self.cync_switches:
+                                        self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
                             elif packet_length >= 25 and int(packet[13]) == 84:
                                 #parse motion and ambient light sensor packet
-                                deviceID = self.home_devices[home_id][int(packet[16])]
-                                motion = int(packet[22]) > 0
-                                ambient_light = int(packet[24]) > 0
-                                if deviceID in self.cync_motion_sensors:
-                                    self.cync_motion_sensors[deviceID].update_motion_sensor(motion)
-                                if deviceID in self.cync_ambient_light_sensors:
-                                    self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
+                                if int(packet[16]) < len(self.home_devices[home_id]):
+                                    deviceID = self.home_devices[home_id][int(packet[16])]
+                                    motion = int(packet[22]) > 0
+                                    ambient_light = int(packet[24]) > 0
+                                    if deviceID in self.cync_motion_sensors:
+                                        self.cync_motion_sensors[deviceID].update_motion_sensor(motion)
+                                    if deviceID in self.cync_ambient_light_sensors:
+                                        self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
                             elif packet_length > 51 and int(packet[13]) == 82:
                                 #parse initial state packet
                                 switch_id = str(struct.unpack(">I", packet[0:4])[0])
@@ -162,40 +164,43 @@ class CyncHub:
                                 self._add_connected_devices(switch_id, home_id)
                                 packet = packet[22:]
                                 while len(packet) > 24:
-                                    deviceID = self.home_devices[home_id][int(packet[0])]
-                                    if deviceID in self.cync_switches:
-                                        if self.cync_switches[deviceID].elements > 1:
-                                            for i in range(self.cync_switches[deviceID].elements):
-                                                device_id = self.home_devices[home_id][(i+1)*256 + int(packet[0])]
-                                                state = int((int(packet[12]) >> i) & int(packet[8])) > 0
-                                                brightness = 100 if state else 0
-                                                self.cync_switches[device_id].update_switch(state,brightness,self.cync_switches[device_id].color_temp,self.cync_switches[device_id].rgb)
-                                        else:
-                                            state = int(packet[8]) > 0
-                                            brightness = int(packet[12]) if state else 0
-                                            color_temp = int(packet[16])
-                                            rgb = {'r':int(packet[20]),'g':int(packet[21]),'b':int(packet[22]),'active':int(packet[16])==254}
-                                            self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
+                                    if int(packet[0]) < len(self.home_devices[home_id]):
+                                        deviceID = self.home_devices[home_id][int(packet[0])]
+                                        if deviceID in self.cync_switches:
+                                            if self.cync_switches[deviceID].elements > 1:
+                                                for i in range(self.cync_switches[deviceID].elements):
+                                                    device_id = self.home_devices[home_id][(i+1)*256 + int(packet[0])]
+                                                    state = int((int(packet[12]) >> i) & int(packet[8])) > 0
+                                                    brightness = 100 if state else 0
+                                                    self.cync_switches[device_id].update_switch(state,brightness,self.cync_switches[device_id].color_temp,self.cync_switches[device_id].rgb)
+                                            else:
+                                                state = int(packet[8]) > 0
+                                                brightness = int(packet[12]) if state else 0
+                                                color_temp = int(packet[16])
+                                                rgb = {'r':int(packet[20]),'g':int(packet[21]),'b':int(packet[22]),'active':int(packet[16])==254}
+                                                self.cync_switches[deviceID].update_switch(state,brightness,color_temp,rgb)
                                     packet = packet[24:]
                         elif packet_type == 131:
                             switch_id = str(struct.unpack(">I", packet[0:4])[0])
                             home_id = self.switchID_to_homeID[switch_id]
                             if packet_length >= 33 and int(packet[13]) == 219:
                                 #parse state and brightness change packet
-                                deviceID = self.home_devices[home_id][int(packet[21])]
-                                state = int(packet[27]) > 0
-                                brightness = int(packet[28]) if state else 0
-                                if deviceID in self.cync_switches:
-                                    self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
+                                if int(packet[21]) < len(self.home_devices[home_id]):
+                                    deviceID = self.home_devices[home_id][int(packet[21])]
+                                    state = int(packet[27]) > 0
+                                    brightness = int(packet[28]) if state else 0
+                                    if deviceID in self.cync_switches:
+                                        self.cync_switches[deviceID].update_switch(state,brightness,self.cync_switches[deviceID].color_temp,self.cync_switches[deviceID].rgb)
                             elif packet_length >= 25 and int(packet[13]) == 84:
                                 #parse motion and ambient light sensor packet
-                                deviceID = self.home_devices[home_id][int(packet[16])]
-                                motion = int(packet[22]) > 0
-                                ambient_light = int(packet[24]) > 0
-                                if deviceID in self.cync_motion_sensors:
-                                    self.cync_motion_sensors[deviceID].update_motion_sensor(motion)
-                                if deviceID in self.cync_ambient_light_sensors:
-                                    self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
+                                if int(packet[16]) < len(self.home_devices[home_id]):
+                                    deviceID = self.home_devices[home_id][int(packet[16])]
+                                    motion = int(packet[22]) > 0
+                                    ambient_light = int(packet[24]) > 0
+                                    if deviceID in self.cync_motion_sensors:
+                                        self.cync_motion_sensors[deviceID].update_motion_sensor(motion)
+                                    if deviceID in self.cync_ambient_light_sensors:
+                                        self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
                         elif packet_type == 67 and packet_length >= 26 and int(packet[4]) == 1 and int(packet[5]) == 1 and int(packet[6]) == 6:
                             #parse state packet
                             switch_id = str(struct.unpack(">I", packet[0:4])[0])
