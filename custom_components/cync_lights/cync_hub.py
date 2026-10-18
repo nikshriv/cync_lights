@@ -196,6 +196,14 @@ class CyncHub:
                                     self.cync_motion_sensors[deviceID].update_motion_sensor(motion)
                                 if deviceID in self.cync_ambient_light_sensors:
                                     self.cync_ambient_light_sensors[deviceID].update_ambient_light_sensor(ambient_light)
+                        elif packet_type == 67 and packet_length >= 11 and packet[4:11] == bytes.fromhex('010106020002ff'):
+                            # Motion records use the outer switch ID; 0xff is not a mesh address.
+                            # Consume malformed/unsupported motion records without updating a light.
+                            if packet_length == 26 and packet[11] in (0, 1):
+                                switch_id = str(struct.unpack(">I", packet[0:4])[0])
+                                sensor_ids = set(self.switchID_to_deviceIDs.get(switch_id, [])) & self.cync_motion_sensors.keys()
+                                if len(sensor_ids) == 1:
+                                    self.cync_motion_sensors[next(iter(sensor_ids))].update_motion_sensor(packet[11] == 1)
                         elif packet_type == 67 and packet_length >= 26 and int(packet[4]) == 1 and int(packet[5]) == 1 and int(packet[6]) == 6:
                             #parse state packet
                             switch_id = str(struct.unpack(">I", packet[0:4])[0])
