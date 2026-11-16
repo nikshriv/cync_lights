@@ -1,9 +1,9 @@
 {
   "domain": "cync_lights",
   "name": "Cync Lights",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "config_flow": true,
-  "documentation": "https://github.com/nikshriv/cync_lights",
+  "documentation": "https://github.com/Woodhead02/cync_lights_queueing",
   "ssdp": [],
   "zeroconf": [],
   "homekit": {},
