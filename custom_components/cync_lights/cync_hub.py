@@ -4,10 +4,14 @@ import asyncio
 import struct
 import aiohttp
 import math
+import time
 import ssl
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
+
+# Minimum gap between packets sent to the Cync cloud server, in seconds
+SEND_SPACING = 0.25
 
 API_AUTH = "https://api.gelighting.com/v2/user_auth"
 API_REQUEST_CODE = "https://api.gelighting.com/v2/two_factor/email/verifycode"
@@ -53,6 +57,7 @@ class CyncHub:
         self.options = options
         self._seq_num = 0
         self.pending_commands = {}
+        self._next_send_at = 0.0
         [room.initialize() for room in self.cync_rooms.values() if room.is_subgroup]
         [room.initialize() for room in self.cync_rooms.values() if not room.is_subgroup]
 
@@ -293,10 +298,20 @@ class CyncHub:
             dev.publish_update()
 
     def send_request(self,request):
+        """Queue a packet so consecutive packets leave SEND_SPACING seconds apart."""
+        send_at = max(self.loop.time(), self._next_send_at)
+        self._next_send_at = send_at + SEND_SPACING
         async def send():
+            delay = send_at - self.loop.time()
+            if delay > 0:
+                await asyncio.sleep(delay)
             self.writer.write(request)
             await self.writer.drain()
         self.loop.create_task(send())
+
+    def queue_delay(self):
+        """Seconds until every queued packet has been sent."""
+        return max(0.0, self._next_send_at - time.monotonic())
 
     def combo_control(self,state,brightness,color_tone,rgb,switch_id,mesh_id,seq):
         combo_request = bytes.fromhex('7300000022') + int(switch_id).to_bytes(4,'big') + int(seq).to_bytes(2,'big') + bytes.fromhex('007e00000000f8f010000000000000') + mesh_id + bytes.fromhex('f00000') + (1 if state else 0).to_bytes(1,'big')  + brightness.to_bytes(1,'big') + color_tone.to_bytes(1,'big') + rgb[0].to_bytes(1,'big') + rgb[1].to_bytes(1,'big') + rgb[2].to_bytes(1,'big') + ((496 + int(mesh_id[0]) + int(mesh_id[1]) + (1 if state else 0) + brightness + color_tone + sum(rgb))%256).to_bytes(1,'big') + bytes.fromhex('7e')
@@ -424,7 +439,7 @@ class CyncRoom:
             else:
                 self.hub.turn_on(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
-            await asyncio.sleep(self._command_timout)
+            await asyncio.sleep(self._command_timout + self.hub.queue_delay())
             if self.hub.pending_commands.get(seq, None) is not None:
                 self.hub.pending_commands.pop(seq)
                 attempts += 1
@@ -443,7 +458,7 @@ class CyncRoom:
                 controller = self.default_controller
             self.hub.turn_off(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
-            await asyncio.sleep(self._command_timout)
+            await asyncio.sleep(self._command_timout + self.hub.queue_delay())
             if self.hub.pending_commands.get(seq, None) is not None:
                 self.hub.pending_commands.pop(seq)
                 attempts += 1
@@ -575,7 +590,7 @@ class CyncSwitch:
             else:
                 self.hub.turn_on(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
-            await asyncio.sleep(self._command_timout)
+            await asyncio.sleep(self._command_timout + self.hub.queue_delay())
             if self.hub.pending_commands.get(seq, None) is not None:
                 self.hub.pending_commands.pop(seq)
                 attempts += 1
@@ -594,7 +609,7 @@ class CyncSwitch:
                 controller = self.default_controller
             self.hub.turn_off(controller, self.mesh_id, seq)
             self.hub.pending_commands[seq] = self.command_received
-            await asyncio.sleep(self._command_timout)
+            await asyncio.sleep(self._command_timout + self.hub.queue_delay())
             if self.hub.pending_commands.get(seq, None) is not None:
                 self.hub.pending_commands.pop(seq)
                 attempts += 1
