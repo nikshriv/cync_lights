@@ -353,8 +353,8 @@ class CyncRoom:
         self.groups_support_brightness = False
         self.groups_support_color_temp = False
         self.groups_support_rgb = False
-        self._command_timout = 0.5
-        self._command_retry_time = 5
+        self._command_timout = 1.5
+        self._command_retry_time = 6
 
     def initialize(self):
         """Initialization of supported features and registration of update function for all switches and subgroups in the room"""
@@ -524,8 +524,8 @@ class CyncSwitch:
         self.plug = switch_info.get('PLUG',False)
         self.fan = switch_info.get('FAN',False)
         self.elements = switch_info.get('MULTIELEMENT',1)
-        self._command_timout = 0.5
-        self._command_retry_time = 5
+        self._command_timout = 1.5
+        self._command_retry_time = 6
 
     def register(self, update_callback) -> None:
         """Register callback, called when switch changes state."""
